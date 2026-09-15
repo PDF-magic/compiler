@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
@@ -14,8 +16,15 @@ from typography_renderer import TypographyPdfRenderer
 class FirstPagePdfRenderer(TypographyPdfRenderer):
     """Configured renderer with a filing-style first-page identity block."""
 
-    def __init__(self, *args, visible_document_title: str | None = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        visible_document_title: str | None = None,
+        hide_url_scheme: bool = False,
+        **kwargs,
+    ):
         self.visible_document_title = (visible_document_title or "").strip()
+        self.hide_url_scheme = hide_url_scheme
         super().__init__(*args, **kwargs)
 
         settings = self.letter_settings
@@ -30,6 +39,16 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
             self.top = max(self.top, 1.95 * inch)
         elif has_letterhead_row:
             self.top = max(self.top, 1.55 * inch)
+
+    def markdown_inline(self, text: str, refs_on: bool = True) -> tuple[str, list[int]]:
+        rendered, refs = super().markdown_inline(text, refs_on)
+        if self.hide_url_scheme:
+            rendered = re.sub(
+                r'(<link href="https?://[^"]+"[^>]*>(?:<u>)?)https?://',
+                r"\1",
+                rendered,
+            )
+        return rendered, refs
 
     def draw_branding(self, canvas, doc):
         """Draw the first-page header first, then logo/title/date beneath it."""
