@@ -80,7 +80,8 @@ def index():
     )
     return page.replace(
         "</body>",
-        '  <script src="/static/letterhead-presets.js"></script>\n</body>',
+        '  <script src="/static/letterhead-presets.js"></script>\n'
+        '  <script src="/static/plain-link-options.js"></script>\n</body>',
         1,
     )
 
@@ -194,6 +195,7 @@ def render_pdf():
             keywords=request.form.get("keywords", "").strip() or None,
             smart_quotes=truthy("smart_quotes"),
             underline_links=truthy("underline_links"),
+            hide_url_scheme=truthy("hide_url_scheme"),
             link_color=link_color,
         )
         renderer.build()
