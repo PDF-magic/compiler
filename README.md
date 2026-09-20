@@ -141,7 +141,7 @@ The compiler supports:
 - an optional visible table of contents with hierarchical indentation and page numbers
 - Markdown footnotes placed at the bottom of the page where referenced, including continuation pages
 - `{{key}}` interpolation for stable references to final Markdown footnote numbers
-- basic bold, italic, inline code, links, block quotes, lists, rules, and local images
+- basic bold, italic, inline code, links, block quotes, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
 - configurable PDF metadata
@@ -152,5 +152,16 @@ The compiler supports:
 - optional logo cleanup for padded assets and monochrome printing
 - optional smart-quote rendering without changing the Markdown source
 - read-only legal-style and HTTP(S) URL validation before PDF generation
+
+### GitHub-flavored admonition blockquotes
+
+The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION`:
+
+```markdown
+> [!NOTE]
+> This text uses the NOTE style slot.
+```
+
+The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers use the same body font, centered and bold. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.

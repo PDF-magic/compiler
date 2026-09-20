@@ -19,6 +19,7 @@ import weakref
 from PIL import Image as PILImage
 from PIL import ImageChops, ImageDraw, ImageOps
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -37,6 +38,14 @@ from emoji_renderer import EmojiParagraph as Paragraph
 
 SIGNATURE_SENTINEL = "@@PDF_COMPILER_SIGNATURE_BLOCK@@"
 LINK_COLOR = "#2E732E"
+ADMONITION_TYPES = ("NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION")
+ADMONITION_DEFAULT_COLORS = {
+    "NOTE": "#2563EB",
+    "TIP": "#2E732E",
+    "IMPORTANT": "#7C3AED",
+    "WARNING": "#B45309",
+    "CAUTION": "#B42318",
+}
 
 
 class RefParagraph(Paragraph):
@@ -58,7 +67,8 @@ class RefParagraph(Paragraph):
         if accent is not None:
             self.canv.saveState()
             x = self.style.leftIndent - 10
-            padding = 6
+            padding_top = getattr(self.style, "quotePaddingTop", 6)
+            padding_bottom = getattr(self.style, "quotePaddingBottom", 6)
             tint = colors.Color(
                 1 - (1 - accent.red) * 0.20,
                 1 - (1 - accent.green) * 0.20,
@@ -67,23 +77,44 @@ class RefParagraph(Paragraph):
             self.canv.setFillColor(tint)
             corner_radius = self.style.quoteCornerRadius
             right = self.width - self.style.rightIndent + corner_radius
-            bottom, top = -padding, self.height + padding
+            bottom, top = -padding_bottom, self.height + padding_top
             radius = min(corner_radius, (top - bottom) / 2, (right - x) / 2)
-            curve = radius * 0.5522847498
+            bottom_radius = radius if getattr(self.style, "quoteRoundBottom", True) else 0
+            top_radius = radius if getattr(self.style, "quoteRoundTop", True) else 0
             background = self.canv.beginPath()
             background.moveTo(x, bottom)
-            background.lineTo(right - radius, bottom)
-            background.curveTo(right - radius + curve, bottom,
-                               right, bottom + radius - curve, right, bottom + radius)
-            background.lineTo(right, top - radius)
-            background.curveTo(right, top - radius + curve,
-                               right - radius + curve, top, right - radius, top)
+            background.lineTo(right - bottom_radius, bottom)
+            if bottom_radius:
+                curve = bottom_radius * 0.5522847498
+                background.curveTo(
+                    right - bottom_radius + curve,
+                    bottom,
+                    right,
+                    bottom + bottom_radius - curve,
+                    right,
+                    bottom + bottom_radius,
+                )
+            else:
+                background.lineTo(right, bottom)
+            background.lineTo(right, top - top_radius)
+            if top_radius:
+                curve = top_radius * 0.5522847498
+                background.curveTo(
+                    right,
+                    top - top_radius + curve,
+                    right - top_radius + curve,
+                    top,
+                    right - top_radius,
+                    top,
+                )
+            else:
+                background.lineTo(right, top)
             background.lineTo(x, top)
             background.close()
             self.canv.drawPath(background, stroke=0, fill=1)
             self.canv.setStrokeColor(accent)
             self.canv.setLineWidth(2)
-            self.canv.line(x, -padding, x, self.height + padding)
+            self.canv.line(x, bottom, x, top)
             self.canv.restoreState()
         super().draw()
 
@@ -395,6 +426,24 @@ class PdfRenderer:
                 spaceAfter=20,
             )
         )
+        for kind, color in ADMONITION_DEFAULT_COLORS.items():
+            prefix = f"Admonition{kind.title()}"
+            styles.add(
+                ParagraphStyle(
+                    f"{prefix}BodyX",
+                    parent=styles["QuoteX"],
+                    quoteAccent=colors.HexColor(color),
+                )
+            )
+            styles.add(
+                ParagraphStyle(
+                    f"{prefix}HeaderX",
+                    parent=styles["QuoteX"],
+                    fontName=bold,
+                    alignment=TA_CENTER,
+                    quoteAccent=colors.HexColor(color),
+                )
+            )
         styles.add(
             ParagraphStyle(
                 "ListX",
@@ -419,6 +468,73 @@ class PdfRenderer:
             )
         )
         return styles
+
+    @staticmethod
+    def admonition_kind(text: str) -> str | None:
+        match = re.fullmatch(r"\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*", text.strip(), re.IGNORECASE)
+        return match.group(1).upper() if match else None
+
+    def admonitions_enabled(self) -> bool:
+        return True
+
+    def admonition_header(self, kind: str) -> str:
+        return ""
+
+    def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
+        """Render a normal quote or a GitHub-flavored admonition blockquote."""
+        if not quote_lines:
+            return []
+
+        kind = self.admonition_kind(quote_lines[0])
+        if not kind or not self.admonitions_enabled():
+            chunks = []
+            refs = []
+            for quote in quote_lines:
+                rendered, quote_refs = self.markdown_inline(quote.strip(), True)
+                chunks.append(rendered)
+                refs.extend(quote_refs)
+            return [RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs)]
+
+        body_lines = quote_lines[1:]
+        body_chunks = []
+        body_refs = []
+        for quote in body_lines:
+            rendered, quote_refs = self.markdown_inline(quote.strip(), True)
+            body_chunks.append(rendered)
+            body_refs.extend(quote_refs)
+
+        prefix = f"Admonition{kind.title()}"
+        header = self.admonition_header(kind).strip()
+        flowables: list[RefParagraph] = []
+        has_body = bool(body_lines)
+
+        if header:
+            rendered_header, _ = self.markdown_inline(header, False)
+            header_style = self.styles[f"{prefix}HeaderX"]
+            if has_body:
+                header_style = ParagraphStyle(
+                    f"{prefix}HeaderJoinedX",
+                    parent=header_style,
+                    quoteRoundBottom=False,
+                    quotePaddingBottom=0,
+                    spaceAfter=0,
+                )
+            flowables.append(RefParagraph(rendered_header, header_style))
+
+        if has_body or not header:
+            body_text = "<br/>".join(body_chunks) if body_chunks else "&#160;"
+            body_style = self.styles[f"{prefix}BodyX"]
+            if header:
+                body_style = ParagraphStyle(
+                    f"{prefix}BodyJoinedX",
+                    parent=body_style,
+                    quoteRoundTop=False,
+                    quotePaddingTop=0,
+                    spaceBefore=0,
+                )
+            flowables.append(RefParagraph(body_text, body_style, body_refs))
+
+        return flowables
 
     def note_number(self, key: str) -> int:
         if key not in self.nums:
@@ -557,13 +673,7 @@ class PdfRenderer:
         def flush_quote():
             nonlocal quote_lines
             if quote_lines:
-                chunks = []
-                refs = []
-                for quote in quote_lines:
-                    rendered, quote_refs = self.markdown_inline(quote.strip(), True)
-                    chunks.append(rendered)
-                    refs.extend(quote_refs)
-                story.append(RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs))
+                story.extend(self.blockquote_flowables(quote_lines))
                 quote_lines = []
 
         def add_heading(level: int, heading: str):

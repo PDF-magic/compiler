@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 
 from reportlab.lib import colors
@@ -12,6 +12,7 @@ from reportlab.platypus import PageBreak, Spacer, Table, TableStyle
 from emoji_renderer import EmojiParagraph as Paragraph
 
 from configured_renderer import ConfiguredPdfRenderer, format_header_date, format_page_number
+from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES
 
 
 @dataclass(slots=True)
@@ -34,6 +35,16 @@ class TypographySettings:
     page_number_font_size: float = 8.5
     blockquote_corner_radius: float = 10.0
     blockquote_color: str = ""
+    admonitions_enabled: bool = True
+    admonition_headers: dict[str, str] = field(
+        default_factory=lambda: {kind: "" for kind in ADMONITION_TYPES}
+    )
+    admonition_colors: dict[str, str] = field(
+        default_factory=lambda: dict(ADMONITION_DEFAULT_COLORS)
+    )
+    admonition_indents: dict[str, float] = field(
+        default_factory=lambda: {kind: 18.0 for kind in ADMONITION_TYPES}
+    )
 
     def __post_init__(self) -> None:
         font_sizes = {
@@ -60,6 +71,29 @@ class TypographySettings:
             raise ValueError("Blockquote corner radius must be between 0 and 64 pt.")
         if self.blockquote_color and not re.fullmatch(r"#[0-9a-fA-F]{6}", self.blockquote_color):
             raise ValueError("Blockquote color must be a six-digit hex color, such as #2E732E.")
+
+        self.admonition_headers = {
+            kind: self.admonition_headers.get(kind, "").strip()
+            for kind in ADMONITION_TYPES
+        }
+        self.admonition_colors = {
+            kind: self.admonition_colors.get(kind, ADMONITION_DEFAULT_COLORS[kind]).strip()
+            for kind in ADMONITION_TYPES
+        }
+        self.admonition_indents = {
+            kind: float(self.admonition_indents.get(kind, 18.0))
+            for kind in ADMONITION_TYPES
+        }
+        for kind in ADMONITION_TYPES:
+            color = self.admonition_colors[kind]
+            if color and not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                raise ValueError(
+                    f"{kind.title()} admonition color must be a six-digit hex color."
+                )
+            if not 0 <= self.admonition_indents[kind] <= 144:
+                raise ValueError(
+                    f"{kind.title()} admonition indent must be between 0 and 144 pt."
+                )
 
 
 class TypographyPdfRenderer(ConfiguredPdfRenderer):
@@ -97,7 +131,29 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
         styles["QuoteX"].quoteCornerRadius = typography.blockquote_corner_radius
         styles["QuoteX"].quoteAccent = colors.HexColor(typography.blockquote_color or self.link_color)
         styles["QuoteX"].rightIndent = 0.18 * inch + typography.blockquote_corner_radius
+
+        for kind in ADMONITION_TYPES:
+            prefix = f"Admonition{kind.title()}"
+            accent = colors.HexColor(
+                typography.admonition_colors[kind]
+                or typography.blockquote_color
+                or self.link_color
+            )
+            for suffix in ("BodyX", "HeaderX"):
+                style = styles[f"{prefix}{suffix}"]
+                style.fontSize = typography.body_font_size
+                style.leading = body_leading
+                style.leftIndent = typography.admonition_indents[kind]
+                style.rightIndent = 0.18 * inch + typography.blockquote_corner_radius
+                style.quoteCornerRadius = typography.blockquote_corner_radius
+                style.quoteAccent = accent
         return styles
+
+    def admonitions_enabled(self) -> bool:
+        return self.typography.admonitions_enabled
+
+    def admonition_header(self, kind: str) -> str:
+        return self.typography.admonition_headers.get(kind, "")
 
     def _toc_block(self, page_numbers: list[int] | None = None, *, force: bool = False):
         if not (force or self.letter_settings.include_toc):

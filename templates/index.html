@@ -154,6 +154,13 @@
     .link-colors .color-swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--border); background: var(--swatch); }
     .color-swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 3px; }
     .link-colors input { width: 120px; }
+    .admonition-settings { grid-column: 1 / -1; margin-top: 5px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .admonition-settings > summary { cursor: pointer; font-size: 13px; font-weight: 750; }
+    .admonition-settings > .check { margin-top: 12px; }
+    .admonition-help { display: block; margin: 8px 0 12px; }
+    .admonition-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .admonition-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); }
+    .admonition-card strong { font-size: 12px; letter-spacing: .05em; }
     .addressee-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .addressee-actions button { margin-left: auto; }
     .preview { display: none; max-width: 210px; max-height: 80px; object-fit: contain; border: 1px dashed var(--control-border); border-radius: 8px; padding: 6px; background: var(--surface-subtle); }
@@ -220,6 +227,8 @@
       .intro { display: none; }
       .grid { grid-template-columns: 1fr; }
       .full { grid-column: auto; }
+      .admonition-settings { grid-column: auto; }
+      .admonition-grid { grid-template-columns: 1fr; }
       fieldset { padding: 18px 16px 16px; }
       .wizard-progress { padding: 12px 14px 10px; }
       .step-tabs { padding: 10px 14px; }
@@ -476,6 +485,28 @@
             <input type="number" name="blockquote_corner_radius" value="10" min="0" max="64" step="1" required>
             <small>Rounds the right corners. Use 0 for square corners; short quotes limit the radius to half their height.</small>
           </label>
+          <details class="admonition-settings" open>
+            <summary>GitHub-flavored admonition blockquotes</summary>
+            <input type="hidden" name="admonitions_enabled" value="0">
+            <label class="check"><input type="checkbox" name="admonitions_enabled" value="1" checked> Interpret <code>&gt; [!NOTE]</code> and the other GitHub admonition markers as style variants</label>
+            <small class="admonition-help">The marker selects a blockquote style and is not printed. Headers are optional; when present they use the body font, bold and centered. Clear a category color to inherit the regular blockquote accent.</small>
+            <div class="admonition-grid">
+              {% for kind in admonition_types %}
+              <div class="admonition-card">
+                <strong>{{ kind }}</strong>
+                <label>Optional header
+                  <input name="admonition_{{ kind|lower }}_header" value="" maxlength="80" placeholder="No header">
+                </label>
+                <label>Accent color
+                  <input name="admonition_{{ kind|lower }}_color" value="{{ admonition_default_colors[kind] }}" placeholder="Inherit blockquote color" pattern="#[0-9a-fA-F]{6}" maxlength="7" title="Enter a six-digit hex color or leave blank">
+                </label>
+                <label>Left indent (pt)
+                  <input type="number" name="admonition_{{ kind|lower }}_indent" value="18" min="0" max="144" step="1" required>
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
           <label class="check"><input type="checkbox" name="smart_quotes"> Use smart quotes in rendered PDF</label>
           <label class="check"><input type="checkbox" name="underline_links" checked> Underline links (recommended for web)</label>
           <div class="full link-color-setting">
