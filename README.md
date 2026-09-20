@@ -162,6 +162,6 @@ The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPO
 > This text uses the NOTE style slot.
 ```
 
-The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers use the same body font, centered and bold. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
+The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers are centered in Times small caps, with lowercase letters rendered as reduced capitals. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
