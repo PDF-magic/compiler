@@ -2,6 +2,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from reportlab.lib import colors
+
 from typography_renderer import TypographyPdfRenderer, TypographySettings
 
 
@@ -45,6 +47,33 @@ class TypographyRendererTests(unittest.TestCase):
             self.assertEqual(renderer.styles["H4X"].fontSize, 12.0)
             self.assertEqual(renderer.styles["FootX"].fontSize, 9.0)
 
+    def test_blockquote_background_border_and_contrast_are_customizable(self):
+        typography = TypographySettings(
+            blockquote_color="#2E732E",
+            blockquote_background_color="#111111",
+            blockquote_background_opacity=1.0,
+            blockquote_border=True,
+            blockquote_border_width=1.5,
+        )
+        with TemporaryDirectory() as temp:
+            renderer = self._renderer(Path(temp), typography)
+            style = renderer.styles["QuoteX"]
+            self.assertEqual(style.quoteAccent, colors.HexColor("#2E732E"))
+            self.assertEqual(style.quoteBackground, colors.HexColor("#111111"))
+            self.assertEqual(style.quoteBackgroundOpacity, 1.0)
+            self.assertTrue(style.quoteBorder)
+            self.assertEqual(style.quoteBorderWidth, 1.5)
+            self.assertEqual(style.textColor, colors.white)
+
+    def test_blockquote_translucent_background_keeps_dark_text(self):
+        typography = TypographySettings(
+            blockquote_background_color="#2E732E",
+            blockquote_background_opacity=0.20,
+        )
+        with TemporaryDirectory() as temp:
+            renderer = self._renderer(Path(temp), typography)
+            self.assertEqual(renderer.styles["QuoteX"].textColor, colors.black)
+
     def test_toc_marker_renders_with_typography(self):
         from app import app
         response = app.test_client().post("/render", data={
@@ -59,6 +88,10 @@ class TypographyRendererTests(unittest.TestCase):
             TypographySettings(body_font_size=5.9)
         with self.assertRaises(ValueError):
             TypographySettings(line_spacing=3.1)
+        with self.assertRaises(ValueError):
+            TypographySettings(blockquote_background_opacity=1.01)
+        with self.assertRaises(ValueError):
+            TypographySettings(blockquote_border_width=0.0)
 
 
 if __name__ == "__main__":
