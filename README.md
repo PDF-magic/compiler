@@ -56,7 +56,17 @@ Introductory text.
 ## First section
 ```
 
-A standalone `[[TOC]]` marker enables the visible TOC even when the configurator checkbox is off. When the checkbox is on, the marker overrides the default placement at the start of the document. Only the first standalone marker inserts the TOC; later standalone markers are ignored. Markers inside fenced code blocks remain literal text, so documentation examples can safely show the syntax.
+The TOC marker can also be written as a Markdown heading using `[TOC]` as the complete heading text. All six heading levels are supported, and the generated “Table of Contents” title uses the corresponding heading style:
+
+```markdown
+# [TOC]
+
+## First section
+```
+
+The same works with `## [TOC]` through `###### [TOC]`. Heading-form markers are insertion directives only: they are not numbered, added to the PDF outline, or listed inside the TOC itself.
+
+A standalone TOC marker enables the visible TOC even when the configurator checkbox is off. When the checkbox is on, the marker overrides the default placement at the start of the document. Only the first standalone marker inserts the TOC; later standalone markers are ignored. Both `[[TOC]]` and heading-form markers inside fenced code blocks remain literal text, so documentation examples can safely show the syntax.
 
 The preflight validator reports line and column locations for required legal-style italics such as `_See_`, `_See, e.g.,_`, `_Id._`, `_Ibid._`, `_supra_`, `_infra_`, `_available at_`, and `_note_ 4`. These checks are case-insensitive. It also checks HTTP(S) URLs for valid structure and resolvable public hostnames, rejecting malformed, nonexistent, localhost, and private-network targets. HTTP URLs must use HTTPS when the same public host can complete a valid TLS connection; HTTP remains allowed when HTTPS is unavailable. Root URLs omit the trailing slash (`https://example.com`, not `https://example.com/`), while trailing slashes on non-root paths remain allowed. Validation is read-only and does not rewrite Markdown.
 
@@ -142,7 +152,7 @@ The compiler supports:
 - an optional visible table of contents with hierarchical indentation and page numbers
 - Markdown footnotes placed at the bottom of the page where referenced, including continuation pages
 - `{{key}}` interpolation for stable references to final Markdown footnote numbers
-- basic bold, italic, inline code, links, block quotes, lists, rules, and local images
+- basic bold, italic, inline code, links, block quotes, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
 - configurable PDF metadata
@@ -153,5 +163,16 @@ The compiler supports:
 - optional logo cleanup for padded assets and monochrome printing
 - optional smart-quote rendering without changing the Markdown source
 - read-only legal-style and HTTP(S) URL validation before PDF generation
+
+### GitHub-flavored admonition blockquotes
+
+The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION`:
+
+```markdown
+> [!NOTE]
+> This text uses the NOTE style slot.
+```
+
+The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers are centered in Times small caps, with lowercase letters rendered as reduced capitals. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.

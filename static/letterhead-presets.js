@@ -39,3 +39,19 @@
   logo.addEventListener('change', updatePresetPreview);
   updatePresetPreview();
 })();
+
+(() => {
+  const form = document.getElementById('compiler-form');
+  const source = form?.elements.namedItem('source');
+  const outputName = form?.elements.namedItem('output_name');
+  if (!(source instanceof HTMLInputElement) || !(outputName instanceof HTMLInputElement)) return;
+
+  source.addEventListener('change', () => {
+    const file = source.files && source.files[0];
+    if (!file) return;
+
+    const extensionStart = file.name.lastIndexOf('.');
+    const stem = extensionStart > 0 ? file.name.slice(0, extensionStart) : file.name;
+    outputName.value = `${stem || 'document'}.pdf`;
+  });
+})();

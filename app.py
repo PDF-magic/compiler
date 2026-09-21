@@ -20,7 +20,7 @@ from configured_renderer import (
     LetterSettings,
 )
 from first_page_layout import FirstPagePdfRenderer
-from pdf_compiler import LINK_COLOR
+from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from legal_style_validator import validate_legal_style
 from typography_renderer import TypographySettings
 from url_validator import validate_urls
@@ -34,7 +34,10 @@ LETTERHEAD_PRESETS = {
 
 
 def truthy(name: str) -> bool:
-    return request.form.get(name) in {"1", "true", "on", "yes"}
+    return any(
+        value in {"1", "true", "on", "yes"}
+        for value in request.form.getlist(name)
+    )
 
 
 def form_float(name: str, default: float) -> float:
@@ -76,11 +79,14 @@ def index():
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
         section_numbering_styles=SECTION_NUMBERING_STYLES,
+        admonition_types=ADMONITION_TYPES,
+        admonition_default_colors=ADMONITION_DEFAULT_COLORS,
         today=date.today().isoformat(),
     )
     return page.replace(
         "</body>",
-        '  <script src="/static/letterhead-presets.js"></script>\n</body>',
+        '  <script src="/static/letterhead-presets.js"></script>\n'
+        '  <script src="/static/plain-link-options.js"></script>\n</body>',
         1,
     )
 
@@ -163,6 +169,35 @@ def render_pdf():
                 line_spacing=form_float("line_spacing", 1.3),
                 blockquote_corner_radius=form_float("blockquote_corner_radius", 10.0),
                 blockquote_color=request.form.get("blockquote_color", "").strip(),
+                blockquote_background_color=request.form.get(
+                    "blockquote_background_color", ""
+                ).strip(),
+                blockquote_background_opacity=(
+                    form_float("blockquote_background_opacity", 20.0) / 100.0
+                ),
+                blockquote_border=truthy("blockquote_border"),
+                blockquote_border_width=form_float("blockquote_border_width", 1.0),
+                admonitions_enabled=(
+                    "admonitions_enabled" not in request.form
+                    or truthy("admonitions_enabled")
+                ),
+                admonition_headers={
+                    kind: request.form.get(
+                        f"admonition_{kind.lower()}_header", ""
+                    ).strip()
+                    for kind in ADMONITION_TYPES
+                },
+                admonition_colors={
+                    kind: request.form.get(
+                        f"admonition_{kind.lower()}_color",
+                        ADMONITION_DEFAULT_COLORS[kind],
+                    ).strip()
+                    for kind in ADMONITION_TYPES
+                },
+                admonition_indents={
+                    kind: form_float(f"admonition_{kind.lower()}_indent", 18.0)
+                    for kind in ADMONITION_TYPES
+                },
                 h1_font_size=form_float("h1_font_size", 16.5),
                 h2_font_size=form_float("h2_font_size", 13.7),
                 h3_font_size=form_float("h3_font_size", 12.2),
@@ -195,6 +230,7 @@ def render_pdf():
             keywords=request.form.get("keywords", "").strip() or None,
             smart_quotes=truthy("smart_quotes"),
             underline_links=truthy("underline_links"),
+            hide_url_scheme=truthy("hide_url_scheme"),
             link_color=link_color,
         )
         renderer.build()

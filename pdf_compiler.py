@@ -19,6 +19,7 @@ import weakref
 from PIL import Image as PILImage
 from PIL import ImageChops, ImageDraw, ImageOps
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -33,10 +34,19 @@ from reportlab.platypus import (
 
 
 from emoji_renderer import EmojiParagraph as Paragraph
+from page_breaks import PAGE_BREAK_SENTINEL, normalize_page_breaks
 
 
 SIGNATURE_SENTINEL = "@@PDF_COMPILER_SIGNATURE_BLOCK@@"
 LINK_COLOR = "#2E732E"
+ADMONITION_TYPES = ("NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION")
+ADMONITION_DEFAULT_COLORS = {
+    "NOTE": "#2563EB",
+    "TIP": "#2E732E",
+    "IMPORTANT": "#7C3AED",
+    "WARNING": "#B45309",
+    "CAUTION": "#B42318",
+}
 
 
 class RefParagraph(Paragraph):
@@ -58,35 +68,65 @@ class RefParagraph(Paragraph):
         if accent is not None:
             self.canv.saveState()
             x = self.style.leftIndent - 10
-            padding = 6
-            tint = colors.Color(
-                1 - (1 - accent.red) * 0.20,
-                1 - (1 - accent.green) * 0.20,
-                1 - (1 - accent.blue) * 0.20,
+            padding_top = getattr(self.style, "quotePaddingTop", 6)
+            padding_bottom = getattr(self.style, "quotePaddingBottom", 6)
+            background_color = getattr(self.style, "quoteBackground", accent)
+            opacity = max(0.0, min(1.0, float(getattr(self.style, "quoteBackgroundOpacity", 0.20))))
+            fill = colors.Color(
+                1 - (1 - background_color.red) * opacity,
+                1 - (1 - background_color.green) * opacity,
+                1 - (1 - background_color.blue) * opacity,
             )
-            self.canv.setFillColor(tint)
+            self.canv.setFillColor(fill)
             corner_radius = self.style.quoteCornerRadius
             right = self.width - self.style.rightIndent + corner_radius
-            bottom, top = -padding, self.height + padding
+            bottom, top = -padding_bottom, self.height + padding_top
             radius = min(corner_radius, (top - bottom) / 2, (right - x) / 2)
-            curve = radius * 0.5522847498
+            bottom_radius = radius if getattr(self.style, "quoteRoundBottom", True) else 0
+            top_radius = radius if getattr(self.style, "quoteRoundTop", True) else 0
             background = self.canv.beginPath()
             background.moveTo(x, bottom)
-            background.lineTo(right - radius, bottom)
-            background.curveTo(right - radius + curve, bottom,
-                               right, bottom + radius - curve, right, bottom + radius)
-            background.lineTo(right, top - radius)
-            background.curveTo(right, top - radius + curve,
-                               right - radius + curve, top, right - radius, top)
+            background.lineTo(right - bottom_radius, bottom)
+            if bottom_radius:
+                curve = bottom_radius * 0.5522847498
+                background.curveTo(
+                    right - bottom_radius + curve,
+                    bottom,
+                    right,
+                    bottom + bottom_radius - curve,
+                    right,
+                    bottom + bottom_radius,
+                )
+            else:
+                background.lineTo(right, bottom)
+            background.lineTo(right, top - top_radius)
+            if top_radius:
+                curve = top_radius * 0.5522847498
+                background.curveTo(
+                    right,
+                    top - top_radius + curve,
+                    right - top_radius + curve,
+                    top,
+                    right - top_radius,
+                    top,
+                )
+            else:
+                background.lineTo(right, top)
             background.lineTo(x, top)
             background.close()
-            self.canv.drawPath(background, stroke=0, fill=1)
+
+            if getattr(self.style, "quoteBorder", False):
+                self.canv.setStrokeColor(accent)
+                self.canv.setLineWidth(float(getattr(self.style, "quoteBorderWidth", 1.0)))
+                self.canv.drawPath(background, stroke=1, fill=1)
+            else:
+                self.canv.drawPath(background, stroke=0, fill=1)
+
             self.canv.setStrokeColor(accent)
             self.canv.setLineWidth(2)
-            self.canv.line(x, -padding, x, self.height + padding)
+            self.canv.line(x, bottom, x, top)
             self.canv.restoreState()
         super().draw()
-
 
 class TrackingDoc(SimpleDocTemplate):
     def __init__(self, *args, **kwargs):
@@ -285,6 +325,7 @@ class PdfRenderer:
         raw = self.source.read_text(encoding="utf-8")
         body = extract_body(raw, start_heading)
         self.body_text, self.note_defs = extract_footnotes(body)
+        self.body_text = normalize_page_breaks(self.body_text)
         self._prepare_signature_directives()
         self.prime_note_numbers()
         self.styles = self._styles()
@@ -395,6 +436,24 @@ class PdfRenderer:
                 spaceAfter=20,
             )
         )
+        for kind, color in ADMONITION_DEFAULT_COLORS.items():
+            prefix = f"Admonition{kind.title()}"
+            styles.add(
+                ParagraphStyle(
+                    f"{prefix}BodyX",
+                    parent=styles["QuoteX"],
+                    quoteAccent=colors.HexColor(color),
+                )
+            )
+            styles.add(
+                ParagraphStyle(
+                    f"{prefix}HeaderX",
+                    parent=styles["QuoteX"],
+                    fontName=base,
+                    alignment=TA_CENTER,
+                    quoteAccent=colors.HexColor(color),
+                )
+            )
         styles.add(
             ParagraphStyle(
                 "ListX",
@@ -420,24 +479,127 @@ class PdfRenderer:
         )
         return styles
 
+    @staticmethod
+    def admonition_kind(text: str) -> str | None:
+        match = re.fullmatch(
+            r"\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        return match.group(1).upper() if match else None
+
+    def admonitions_enabled(self) -> bool:
+        return True
+
+    def admonition_header(self, kind: str) -> str:
+        return ""
+
+    @staticmethod
+    def small_caps_markup(text: str, font_size: float) -> str:
+        """Render lowercase runs as reduced uppercase glyphs for small caps."""
+        small_size = font_size * 0.82
+        parts = re.split(r"(<[^>]+>|&[^;]+;)", text)
+        for index, part in enumerate(parts):
+            if not part or part.startswith("<") or (
+                part.startswith("&") and part.endswith(";")
+            ):
+                continue
+            parts[index] = re.sub(
+                r"[a-z]+",
+                lambda match: (
+                    f'<font size="{small_size:g}">'
+                    f"{match.group(0).upper()}</font>"
+                ),
+                part,
+            )
+        return "".join(parts)
+
+    def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
+        """Render a normal quote or a GitHub-flavored admonition blockquote."""
+        if not quote_lines:
+            return []
+
+        kind = self.admonition_kind(quote_lines[0])
+        if not kind or not self.admonitions_enabled():
+            chunks = []
+            refs = []
+            for quote in quote_lines:
+                rendered, quote_refs = self.markdown_inline(quote.strip(), True)
+                chunks.append(rendered)
+                refs.extend(quote_refs)
+            return [RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs)]
+
+        body_lines = quote_lines[1:]
+        body_chunks = []
+        body_refs = []
+        for quote in body_lines:
+            rendered, quote_refs = self.markdown_inline(quote.strip(), True)
+            body_chunks.append(rendered)
+            body_refs.extend(quote_refs)
+
+        prefix = f"Admonition{kind.title()}"
+        header = self.admonition_header(kind).strip()
+        flowables: list[RefParagraph] = []
+        has_body = bool(body_lines)
+
+        if header:
+            rendered_header, _ = self.markdown_inline(header, False)
+            header_style = self.styles[f"{prefix}HeaderX"]
+            rendered_header = self.small_caps_markup(
+                rendered_header,
+                header_style.fontSize,
+            )
+            if has_body:
+                header_style = ParagraphStyle(
+                    f"{prefix}HeaderJoinedX",
+                    parent=header_style,
+                    quoteRoundBottom=False,
+                    quotePaddingBottom=0,
+                    spaceAfter=0,
+                )
+            flowables.append(RefParagraph(rendered_header, header_style))
+
+        if has_body or not header:
+            body_text = "<br/>".join(body_chunks) if body_chunks else "&#160;"
+            body_style = self.styles[f"{prefix}BodyX"]
+            if header:
+                body_style = ParagraphStyle(
+                    f"{prefix}BodyJoinedX",
+                    parent=body_style,
+                    quoteRoundTop=False,
+                    quotePaddingTop=0,
+                    spaceBefore=0,
+                )
+            flowables.append(RefParagraph(body_text, body_style, body_refs))
+
+        return flowables
+
     def note_number(self, key: str) -> int:
         if key not in self.nums:
             self.nums[key] = len(self.order) + 1
             self.order.append(key)
         return self.nums[key]
 
+    @staticmethod
+    def note_destination(number: int) -> str:
+        return f"footnote-{number}"
+
     def prime_note_numbers(self) -> None:
         """Assign final note numbers from real footnote citations before rendering."""
         for match in self.note_ref_re.finditer(self.body_text):
             self.note_number(match.group(1))
 
-    def interpolate_note_numbers(self, text: str) -> str:
+    def interpolate_note_numbers(self, text: str, *, linked: bool = False) -> str:
         """Replace ``{{key}}`` with an already-assigned footnote number."""
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
             number = self.nums.get(key)
-            return str(number) if number is not None else match.group(0)
+            if number is None:
+                return match.group(0)
+            if linked:
+                return f"@@FNREF{number}@@"
+            return str(number)
 
         return self.note_number_ref_re.sub(replace, text)
 
@@ -481,13 +643,13 @@ class PdfRenderer:
             def replace_ref(match):
                 number = self.note_number(match.group(1))
                 refs.append(number)
-                return f"@@FN{number}@@"
+                return f"@@FNCITE{number}@@"
 
             text = self.note_ref_re.sub(replace_ref, text)
         else:
             text = self.note_ref_re.sub("", text)
 
-        text = self.interpolate_note_numbers(text)
+        text = self.interpolate_note_numbers(text, linked=True)
         text = text.replace("&nbsp;", " ")
         text = self.url_re.sub(lambda m: f"{m.group(1)} ({m.group(2)})", text)
         if self.smart_quotes:
@@ -498,11 +660,22 @@ class PdfRenderer:
         text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<i>\1</i>", text)
         text = re.sub(r"(?<![\w/])_([^_\n]+)_(?![\w/])", r"<i>\1</i>", text)
         text = re.sub(r"`([^`]+)`", r"\1", text)
-        text = re.sub(r"@@FN(\d+)@@", r"<super>\1</super>", text)
+        text = re.sub(
+            r"@@FNCITE(\d+)@@",
+            r'<link href="#footnote-\1"><super>\1</super></link>',
+            text,
+        )
+        text = re.sub(
+            r"@@FNREF(\d+)@@",
+            r'<link href="#footnote-\1">\1</link>',
+            text,
+        )
         text = self.linkify_urls(text, underline=self.underline_links, color=self.link_color)
         return text, refs
 
-    def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph:
+    def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph | PageBreak:
+        if text.strip() == PAGE_BREAK_SENTINEL:
+            return PageBreak()
         rendered, refs = self.markdown_inline(text, True)
         return RefParagraph(rendered, style, refs)
 
@@ -557,13 +730,7 @@ class PdfRenderer:
         def flush_quote():
             nonlocal quote_lines
             if quote_lines:
-                chunks = []
-                refs = []
-                for quote in quote_lines:
-                    rendered, quote_refs = self.markdown_inline(quote.strip(), True)
-                    chunks.append(rendered)
-                    refs.extend(quote_refs)
-                story.append(RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs))
+                story.extend(self.blockquote_flowables(quote_lines))
                 quote_lines = []
 
         def add_heading(level: int, heading: str):
@@ -679,7 +846,9 @@ class PdfRenderer:
             self.note_defs.get(key, f"Missing footnote definition for {key}."),
             False,
         )
-        return Paragraph(f"{number}. {text}", self.styles["FootX"])
+        paragraph = Paragraph(f"{number}. {text}", self.styles["FootX"])
+        paragraph.footnote_number = number
+        return paragraph
 
     def process_page_items(self, items: list[Paragraph]) -> list[Paragraph]:
         y = self.max_foot_height
@@ -756,8 +925,26 @@ class PdfRenderer:
         )
         canvas.restoreState()
 
+    def first_pass_note_destinations(self, canvas, doc):
+        if doc.page != 1:
+            return
+        for number in range(1, len(self.order) + 1):
+            canvas.bookmarkPage(self.note_destination(number))
+
     def page_drawer(self, page_refs: dict[int, list[int]]):
         carry: list[Paragraph] = []
+        anchored_notes: set[int] = set()
+
+        def anchor_note(canvas, doc, paragraph: Paragraph, top: float) -> None:
+            number = getattr(paragraph, "footnote_number", None)
+            if number is None or number in anchored_notes:
+                return
+            canvas.bookmarkHorizontalAbsolute(
+                self.note_destination(number),
+                top,
+                left=doc.leftMargin,
+            )
+            anchored_notes.add(number)
 
         def draw(canvas, doc):
             nonlocal carry
@@ -782,6 +969,7 @@ class PdfRenderer:
                 _, height = paragraph.wrap(self.max_foot_width, available)
                 if height <= available:
                     y -= height
+                    anchor_note(canvas, doc, paragraph, y + height)
                     paragraph.drawOn(canvas, doc.leftMargin, y)
                     y -= 0.02 * inch
                     continue
@@ -792,6 +980,7 @@ class PdfRenderer:
                     _, first_height = first.wrap(self.max_foot_width, available)
                     if first_height <= available:
                         y -= first_height
+                        anchor_note(canvas, doc, paragraph, y + first_height)
                         first.drawOn(canvas, doc.leftMargin, y)
                         carry = pieces[1:] + items[index + 1 :]
                         break
@@ -825,7 +1014,7 @@ class PdfRenderer:
             first_doc = self.document(tmp)
             first_doc.build(
                 self.build_story(),
-                onFirstPage=lambda _canvas, _doc: None,
+                onFirstPage=self.first_pass_note_destinations,
                 onLaterPages=lambda _canvas, _doc: None,
             )
 
