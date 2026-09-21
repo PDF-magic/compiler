@@ -2,20 +2,30 @@
 
 from __future__ import annotations
 
+import re
+
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from emoji_renderer import EmojiParagraph as Paragraph
 
-from configured_renderer import format_header_date
+from configured_renderer import format_header_date, format_section_number
 from typography_renderer import TypographyPdfRenderer
 
 
 class FirstPagePdfRenderer(TypographyPdfRenderer):
     """Configured renderer with a filing-style first-page identity block."""
 
+    section_reference_re = re.compile(
+        r"(?<!\w)(?P<prefix>\*(?:infra|supra)\*|_(?:infra|supra)_|(?:infra|supra))"
+        r"(?P<spacing>\s+)"
+        r"(?P<citation>§\s*(?P<reference>[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*(?:[.)])?))",
+        re.IGNORECASE,
+    )
+
     def __init__(self, *args, visible_document_title: str | None = None, **kwargs):
         self.visible_document_title = (visible_document_title or "").strip()
+        self._section_reference_targets_cache: dict[str, int] | None = None
         super().__init__(*args, **kwargs)
 
         settings = self.letter_settings
@@ -30,6 +40,93 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
             self.top = max(self.top, 1.95 * inch)
         elif has_letterhead_row:
             self.top = max(self.top, 1.55 * inch)
+
+    def _section_reference_targets(self) -> dict[str, int]:
+        """Map legal section references to the renderer's internal heading anchors."""
+        if self._section_reference_targets_cache is not None:
+            return self._section_reference_targets_cache
+
+        style = self.letter_settings.section_numbering
+        if style == "none":
+            self._section_reference_targets_cache = {}
+            return self._section_reference_targets_cache
+
+        counts = {level: 0 for level in range(2, 7)}
+        entries: list[tuple[str, str, int]] = []
+        in_fence = False
+        fence_marker: str | None = None
+        section_index = 0
+
+        for raw_line in self.body_text.splitlines():
+            stripped = raw_line.lstrip()
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                marker = stripped[:3]
+                if not in_fence:
+                    in_fence = True
+                    fence_marker = marker
+                elif marker == fence_marker:
+                    in_fence = False
+                    fence_marker = None
+                continue
+            if in_fence:
+                continue
+
+            match = re.match(r"^(#{2,6})\s+(.*)$", raw_line.rstrip())
+            if not match:
+                continue
+
+            level = len(match.group(1))
+            for deeper in range(level + 1, 7):
+                counts[deeper] = 0
+            counts[level] += 1
+
+            active_levels = [item for item in range(2, level + 1) if counts[item]]
+            parts = [
+                format_section_number(style, counts, item).rstrip(".)")
+                for item in active_levels
+            ]
+            parts = [part for part in parts if part]
+            if parts:
+                entries.append((".".join(parts), parts[-1], section_index))
+            section_index += 1
+
+        targets = {full: index for full, _short, index in entries}
+        short_counts: dict[str, int] = {}
+        for _full, short, _index in entries:
+            short_counts[short] = short_counts.get(short, 0) + 1
+        for _full, short, index in entries:
+            if short_counts[short] == 1:
+                targets.setdefault(short, index)
+
+        self._section_reference_targets_cache = targets
+        return targets
+
+    def markdown_inline(self, text: str, refs_on: bool = True) -> tuple[str, list[int]]:
+        """Link ``infra § X`` and ``supra § X`` references to numbered headings."""
+        targets = self._section_reference_targets()
+        placeholders: dict[str, tuple[int, str]] = {}
+
+        def replace(match: re.Match[str]) -> str:
+            reference = match.group("reference").rstrip(".)")
+            target = targets.get(reference)
+            if target is None:
+                return match.group(0)
+
+            placeholder = f"@@SECTIONREF{len(placeholders)}@@"
+            placeholders[placeholder] = (target, match.group("citation"))
+            return f'{match.group("prefix")}{match.group("spacing")}{placeholder}'
+
+        if targets:
+            text = self.section_reference_re.sub(replace, text)
+        rendered, refs = super().markdown_inline(text, refs_on)
+
+        for placeholder, (target, citation) in placeholders.items():
+            label = f"<u>{citation}</u>" if self.underline_links else citation
+            rendered = rendered.replace(
+                placeholder,
+                f'<link href="#section-{target}" color="{self.link_color}">{label}</link>',
+            )
+        return rendered, refs
 
     def draw_branding(self, canvas, doc):
         """Draw the first-page header first, then logo/title/date beneath it."""
