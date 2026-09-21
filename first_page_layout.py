@@ -23,8 +23,15 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
         re.IGNORECASE,
     )
 
-    def __init__(self, *args, visible_document_title: str | None = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        visible_document_title: str | None = None,
+        hide_url_scheme: bool = False,
+        **kwargs,
+    ):
         self.visible_document_title = (visible_document_title or "").strip()
+        self.hide_url_scheme = hide_url_scheme
         self._section_reference_targets_cache: dict[str, int] | None = None
         super().__init__(*args, **kwargs)
 
@@ -125,6 +132,12 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
             rendered = rendered.replace(
                 placeholder,
                 f'<link href="#section-{target}" color="{self.link_color}">{label}</link>',
+            )
+        if self.hide_url_scheme:
+            rendered = re.sub(
+                r'(<link href="https?://[^"]+"[^>]*>(?:<u>)?)https?://',
+                r"\1",
+                rendered,
             )
         return rendered, refs
 
