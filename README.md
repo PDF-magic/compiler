@@ -35,6 +35,7 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 - optional handwritten signature image rendered over a signing line by a standalone `[[signature]]` Markdown tag
 - first-page date and date format, including `September 6, 2026`, `4 May 2025`, ISO, US numeric, or a custom `strftime` format
 - submission subtitle such as `Submitted by email` or `Submitted via FedEx`
+- optional `Quote #` reference rendered in the top-right of the first page
 - addressee text with an optional bordered letterhead box
 - separate first-page and remaining-page header text, with clickable Markdown links and inline bold/italic formatting
 - footer page-count styles: none, `1`, `Page 1`, `1 of 5`, or `Page 1 of 5`
@@ -155,7 +156,7 @@ The compiler supports:
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
 - configurable PDF metadata
-- configurable first-page letterhead date and submission subtitle
+- configurable first-page letterhead date, submission subtitle, and top-right `Quote #` reference
 - optional boxed addressee block
 - separate first-page and later-page headers
 - selectable footer page-count formats using the final PDF page count

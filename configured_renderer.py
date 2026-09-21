@@ -68,6 +68,7 @@ class LetterSettings:
     custom_date_format: str = "%B %d, %Y"
     date_value: str | None = None
     submission_subtitle: str = ""
+    quote_number: str = ""
     addressee: str = ""
     addressee_box: bool = False
     logo_treatment: str = "preserve"

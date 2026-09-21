@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pymupdf
 from reportlab.lib.units import inch
 
 from configured_renderer import LetterSettings
@@ -63,6 +64,19 @@ class FirstPageLayoutTests(unittest.TestCase):
         rendered, _ = renderer.markdown_inline("https://example.com")
 
         self.assertIn("<u>https://example.com</u>", rendered)
+
+    def test_quote_number_renders_in_top_right(self):
+        renderer = self.renderer(
+            settings=LetterSettings(show_date=False, quote_number="Q-1042"),
+        )
+        renderer.build()
+
+        with pymupdf.open(renderer.output) as pdf:
+            matches = pdf[0].search_for("Quote # Q-1042")
+            self.assertTrue(matches)
+            self.assertGreater(matches[0].x0, pdf[0].rect.width / 2)
+
+        self.assertGreaterEqual(renderer.top, 1.55 * inch)
 
 
 if __name__ == "__main__":
