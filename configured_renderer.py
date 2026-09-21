@@ -416,13 +416,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
         def flush_quote():
             nonlocal quote_lines
             if quote_lines:
-                chunks = []
-                refs = []
-                for quote in quote_lines:
-                    rendered, quote_refs = self.markdown_inline(quote.strip(), True)
-                    chunks.append(rendered)
-                    refs.extend(quote_refs)
-                story.append(RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs))
+                story.extend(self.blockquote_flowables(quote_lines))
                 quote_lines = []
 
         section_index = 0

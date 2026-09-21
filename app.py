@@ -20,7 +20,7 @@ from configured_renderer import (
     LetterSettings,
 )
 from first_page_layout import FirstPagePdfRenderer
-from pdf_compiler import LINK_COLOR
+from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from legal_style_validator import validate_legal_style
 from typography_renderer import TypographySettings
 from url_validator import validate_urls
@@ -34,7 +34,10 @@ LETTERHEAD_PRESETS = {
 
 
 def truthy(name: str) -> bool:
-    return request.form.get(name) in {"1", "true", "on", "yes"}
+    return any(
+        value in {"1", "true", "on", "yes"}
+        for value in request.form.getlist(name)
+    )
 
 
 def form_float(name: str, default: float) -> float:
@@ -76,6 +79,8 @@ def index():
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
         section_numbering_styles=SECTION_NUMBERING_STYLES,
+        admonition_types=ADMONITION_TYPES,
+        admonition_default_colors=ADMONITION_DEFAULT_COLORS,
         today=date.today().isoformat(),
     )
     return page.replace(
@@ -171,6 +176,27 @@ def render_pdf():
                 ),
                 blockquote_border=truthy("blockquote_border"),
                 blockquote_border_width=form_float("blockquote_border_width", 1.0),
+                admonitions_enabled=(
+                    "admonitions_enabled" not in request.form
+                    or truthy("admonitions_enabled")
+                ),
+                admonition_headers={
+                    kind: request.form.get(
+                        f"admonition_{kind.lower()}_header", ""
+                    ).strip()
+                    for kind in ADMONITION_TYPES
+                },
+                admonition_colors={
+                    kind: request.form.get(
+                        f"admonition_{kind.lower()}_color",
+                        ADMONITION_DEFAULT_COLORS[kind],
+                    ).strip()
+                    for kind in ADMONITION_TYPES
+                },
+                admonition_indents={
+                    kind: form_float(f"admonition_{kind.lower()}_indent", 18.0)
+                    for kind in ADMONITION_TYPES
+                },
                 h1_font_size=form_float("h1_font_size", 16.5),
                 h2_font_size=form_float("h2_font_size", 13.7),
                 h3_font_size=form_float("h3_font_size", 12.2),
