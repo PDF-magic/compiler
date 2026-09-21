@@ -21,7 +21,10 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
 
         rendered, refs = renderer.markdown_inline("Later, see note {{ref-a}}.")
-        self.assertEqual(rendered, "Later, see note 1.")
+        self.assertEqual(
+            rendered,
+            'Later, see note <link href="#footnote-1">1</link>.',
+        )
         self.assertEqual(refs, [])
 
     def test_uses_final_number_after_other_notes(self):
@@ -32,7 +35,11 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
         self.assertEqual(renderer.nums, {"ref-a": 1, "ref-b": 2, "ref-c": 3})
         rendered, _ = renderer.markdown_inline("See notes {{ref-a}} and {{ref-c}}.")
-        self.assertEqual(rendered, "See notes 1 and 3.")
+        self.assertEqual(
+            rendered,
+            'See notes <link href="#footnote-1">1</link> and '
+            '<link href="#footnote-3">3</link>.',
+        )
 
     def test_placeholder_can_appear_before_citation(self):
         temp, renderer = self.renderer_for(
@@ -41,7 +48,10 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
 
         rendered, _ = renderer.markdown_inline("Later note number: {{ref-b}}.")
-        self.assertEqual(rendered, "Later note number: 2.")
+        self.assertEqual(
+            rendered,
+            'Later note number: <link href="#footnote-2">2</link>.',
+        )
 
     def test_repeated_citation_keeps_one_number(self):
         temp, renderer = self.renderer_for(
@@ -51,6 +61,33 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
         self.assertEqual(renderer.order, ["ref-a"])
         self.assertEqual(renderer.nums["ref-a"], 1)
+
+    def test_footnote_citation_is_clickable(self):
+        temp, renderer = self.renderer_for(
+            """Alpha.[^ref-a]\n\n[^ref-a]: A.\n"""
+        )
+        self.addCleanup(temp.cleanup)
+
+        rendered, refs = renderer.markdown_inline("Alpha.[^ref-a]")
+        self.assertEqual(
+            rendered,
+            'Alpha.<link href="#footnote-1"><super>1</super></link>',
+        )
+        self.assertEqual(refs, [1])
+
+    def test_builds_pdf_with_internal_note_destinations(self):
+        temp, renderer = self.renderer_for(
+            """Alpha.[^ref-a]\n\n_See supra note_ {{ref-a}}.\n\n[^ref-a]: A.\n"""
+        )
+        self.addCleanup(temp.cleanup)
+
+        pages, footnotes, continuations = renderer.build()
+
+        self.assertGreaterEqual(pages, 1)
+        self.assertEqual(footnotes, 1)
+        self.assertEqual(continuations, 0)
+        self.assertTrue(renderer.output.exists())
+        self.assertGreater(renderer.output.stat().st_size, 0)
 
     def test_unresolved_placeholder_is_left_visible(self):
         temp, renderer = self.renderer_for("No footnotes.\n")
