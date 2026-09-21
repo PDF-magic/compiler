@@ -65,6 +65,78 @@ class QuotationTests(unittest.TestCase):
             self.assertEqual(flowables[-1].getPlainText(), "— Ada Lovelace")
             self.assertEqual(flowables[-1].style.alignment, TA_RIGHT)
 
+    def test_source_footnotes_keep_original_discontinuous_numbers(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                (
+                    "> [!QUOTE]\n"
+                    "> First passage.[^4] Later passage.[^17]\n"
+                    "> [^4]: Original fourth note.\n"
+                    "> [^17]: Original seventeenth note.\n"
+                    "> [!SOURCE] Author[^17]\n\n"
+                    "Document text.[^main]\n\n"
+                    "[^main]: Document footnote."
+                ),
+            )
+            flowables = renderer.blockquote_flowables(
+                [
+                    "[!QUOTE]",
+                    "First passage.[^4] Later passage.[^17]",
+                    "[^4]: Original fourth note.",
+                    "[^17]: Original seventeenth note.",
+                    "[!SOURCE] Author[^17]",
+                ]
+            )
+
+            self.assertEqual(renderer.order, ["main"])
+            self.assertEqual(len(flowables), 4)
+            body, note_four, note_seventeen, source = flowables
+            self.assertEqual(body.getPlainText(), "First passage.4 Later passage.17")
+            self.assertEqual(note_four.getPlainText(), "4. Original fourth note.")
+            self.assertEqual(
+                note_seventeen.getPlainText(),
+                "17. Original seventeenth note.",
+            )
+            self.assertEqual(source.getPlainText(), "— Author17")
+            self.assertEqual(body.footnote_refs, [])
+            self.assertEqual(source.footnote_refs, [])
+            self.assertFalse(body.style.quoteRoundBottom)
+            self.assertFalse(note_four.style.quoteRoundTop)
+            self.assertFalse(note_four.style.quoteRoundBottom)
+            self.assertFalse(note_seventeen.style.quoteRoundTop)
+            self.assertFalse(note_seventeen.style.quoteRoundBottom)
+            self.assertFalse(source.style.quoteRoundTop)
+
+    def test_source_footnotes_render_inside_quote_before_attribution(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                (
+                    "> [!QUOTE]\n"
+                    "> First passage.[^4] Later passage.[^17]\n"
+                    "> [^4]: Original fourth note.\n"
+                    "> [^17]: Original seventeenth note.\n"
+                    "> [!SOURCE] Ada\n\n"
+                    "Document text.[^main]\n\n"
+                    "[^main]: Document footnote."
+                ),
+            )
+            _pages, footnotes, _continuations = renderer.build()
+
+            self.assertEqual(footnotes, 1)
+            with pymupdf.open(renderer.output) as pdf:
+                page = pdf[0]
+                body = page.search_for("First passage.")[0]
+                note_four = page.search_for("4. Original fourth note.")[0]
+                note_seventeen = page.search_for("17. Original seventeenth note.")[0]
+                source = page.search_for("— Ada")[0]
+                self.assertLess(body.y0, note_four.y0)
+                self.assertLess(note_four.y0, note_seventeen.y0)
+                self.assertLess(note_seventeen.y0, source.y0)
+
     def test_source_marker_is_literal_in_an_ordinary_blockquote(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

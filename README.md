@@ -189,4 +189,16 @@ The equivalent shorthand is `> [!SRC] Albert Einstein`.
 
 Neither marker is printed. The source renders beneath the quotation, right-aligned and prefixed with an em dash. Inline Markdown, links, and footnote references remain available in both the quotation and its source.
 
+To preserve footnotes from the quoted source, define them inside the quotation. Their labels are rendered exactly as written, so numbering may be independent and discontinuous without affecting the document's ordinary footnote sequence:
+
+```markdown
+> [!QUOTE]
+> First quoted passage.[^4] Later quoted passage.[^17]
+> [^4]: The source's original fourth footnote.
+> [^17]: The source's original seventeenth footnote.
+> [!SOURCE] Author, *Work*
+```
+
+Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. A footnote whose definition is outside the quotation remains an ordinary document footnote.
+
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.

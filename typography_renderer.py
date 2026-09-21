@@ -180,7 +180,7 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
         )
         styles["QuoteX"].rightIndent = 0.18 * inch + typography.blockquote_corner_radius
 
-        for name in ("QuotationBodyX", "QuotationSourceX"):
+        for name in ("QuotationBodyX", "QuotationSourceX", "QuotationFootnoteX"):
             style = styles[name]
             style.fontSize = typography.body_font_size
             style.leading = body_leading
@@ -195,6 +195,12 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
             style.textColor = styles["QuoteX"].textColor
         styles["QuotationSourceX"].fontSize = typography.body_font_size * 0.9
         styles["QuotationSourceX"].leading = body_leading
+        styles["QuotationFootnoteX"].fontSize = typography.footnote_font_size
+        styles["QuotationFootnoteX"].leading = self._scaled_leading(
+            typography.footnote_font_size,
+            8.8,
+            9.9,
+        )
 
         for kind in ADMONITION_TYPES:
             prefix = f"Admonition{kind.title()}"
