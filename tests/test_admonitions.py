@@ -24,7 +24,7 @@ class AdmonitionTests(unittest.TestCase):
             self.assertEqual(flowables[0].getPlainText(), "Body text.")
             self.assertEqual(flowables[0].style.name, "AdmonitionNoteBodyX")
 
-    def test_optional_header_is_centered_bold_and_joins_body(self):
+    def test_optional_header_is_centered_small_caps_and_joins_body(self):
         typography = TypographySettings(
             admonition_headers={"NOTE": "Context"},
             admonition_colors={"NOTE": "#123456"},
@@ -40,9 +40,13 @@ class AdmonitionTests(unittest.TestCase):
             flowables = renderer.blockquote_flowables(["[!NOTE]", "Body text."])
             self.assertEqual(len(flowables), 2)
             header, body = flowables
-            self.assertEqual(header.getPlainText(), "Context")
-            self.assertEqual(header.style.fontName, "Times-Bold")
+            self.assertEqual(header.getPlainText(), "CONTEXT")
+            self.assertEqual(header.style.fontName, "Times-Roman")
             self.assertEqual(header.style.alignment, TA_CENTER)
+            self.assertEqual(
+                PdfRenderer.small_caps_markup("Context", 10),
+                'C<font size="8.2">ONTEXT</font>',
+            )
             self.assertFalse(header.style.quoteRoundBottom)
             self.assertFalse(body.style.quoteRoundTop)
             self.assertEqual(body.style.leftIndent, 30)

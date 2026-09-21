@@ -449,7 +449,7 @@ class PdfRenderer:
                 ParagraphStyle(
                     f"{prefix}HeaderX",
                     parent=styles["QuoteX"],
-                    fontName=bold,
+                    fontName=base,
                     alignment=TA_CENTER,
                     quoteAccent=colors.HexColor(color),
                 )
@@ -494,6 +494,26 @@ class PdfRenderer:
     def admonition_header(self, kind: str) -> str:
         return ""
 
+    @staticmethod
+    def small_caps_markup(text: str, font_size: float) -> str:
+        """Render lowercase runs as reduced uppercase glyphs for small caps."""
+        small_size = font_size * 0.82
+        parts = re.split(r"(<[^>]+>|&[^;]+;)", text)
+        for index, part in enumerate(parts):
+            if not part or part.startswith("<") or (
+                part.startswith("&") and part.endswith(";")
+            ):
+                continue
+            parts[index] = re.sub(
+                r"[a-z]+",
+                lambda match: (
+                    f'<font size="{small_size:g}">'
+                    f"{match.group(0).upper()}</font>"
+                ),
+                part,
+            )
+        return "".join(parts)
+
     def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
         """Render a normal quote or a GitHub-flavored admonition blockquote."""
         if not quote_lines:
@@ -525,6 +545,10 @@ class PdfRenderer:
         if header:
             rendered_header, _ = self.markdown_inline(header, False)
             header_style = self.styles[f"{prefix}HeaderX"]
+            rendered_header = self.small_caps_markup(
+                rendered_header,
+                header_style.fontSize,
+            )
             if has_body:
                 header_style = ParagraphStyle(
                     f"{prefix}HeaderJoinedX",
