@@ -51,6 +51,20 @@ class QuotationTests(unittest.TestCase):
             self.assertEqual(source.getPlainText(), "— Author1")
             self.assertEqual(source.footnote_refs, [1])
 
+    def test_src_is_a_case_insensitive_source_alias(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                "> [!QUOTE]\n> Stay curious.\n> [!src] Ada Lovelace",
+            )
+            flowables = renderer.blockquote_flowables(
+                ["[!QUOTE]", "Stay curious.", "[!src] Ada Lovelace"]
+            )
+
+            self.assertEqual(flowables[-1].getPlainText(), "— Ada Lovelace")
+            self.assertEqual(flowables[-1].style.alignment, TA_RIGHT)
+
     def test_source_marker_is_literal_in_an_ordinary_blockquote(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

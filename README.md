@@ -177,13 +177,15 @@ The marker selects a blockquote style and is not printed as a label. In the web 
 
 ### Sourced quotation blocks
 
-Use a `QUOTE` marker and a final `SOURCE` line to keep the quotation text and its attribution distinct in the document source:
+Use a `QUOTE` marker and a final `SOURCE` line to keep the quotation text and its attribution distinct in the document source. `SRC` is accepted as a shorter alias for `SOURCE`.
 
 ```markdown
 > [!QUOTE]
 > The important thing is not to stop questioning.
 > [!SOURCE] Albert Einstein
 ```
+
+The equivalent shorthand is `> [!SRC] Albert Einstein`.
 
 Neither marker is printed. The source renders beneath the quotation, right-aligned and prefixed with an em dash. Inline Markdown, links, and footnote references remain available in both the quotation and its source.
 

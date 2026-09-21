@@ -532,7 +532,11 @@ class PdfRenderer:
 
     @staticmethod
     def quotation_source(text: str) -> str | None:
-        match = re.fullmatch(r"\[!SOURCE\]\s+(.+?)\s*", text.strip(), re.IGNORECASE)
+        match = re.fullmatch(
+            r"\[!(?:SOURCE|SRC)\]\s+(.+?)\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
         return match.group(1) if match else None
 
     def quotation_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
