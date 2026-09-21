@@ -117,6 +117,47 @@ class SectionAndTocTests(unittest.TestCase):
             self.assertLess(texts.index("Table of Contents"), texts.index("I. First"))
             self.assertNotIn("[[TOC]]", texts)
 
+    def test_toc_heading_marker_supports_every_heading_level(self):
+        expected_style = {
+            1: "H1X",
+            2: "H2X",
+            3: "H3X",
+            4: "H4X",
+            5: "H4X",
+            6: "H4X",
+        }
+        for level in range(1, 7):
+            with self.subTest(level=level), TemporaryDirectory() as temp:
+                root = Path(temp)
+                source = root / "document.md"
+                marker = f"{'#' * level} [TOC]"
+                source.write_text(
+                    f"Intro paragraph.\n\n{marker}\n\n## First\n\nText\n",
+                    encoding="utf-8",
+                )
+                renderer = ConfiguredPdfRenderer(
+                    source,
+                    root / "output.pdf",
+                    settings=LetterSettings(include_toc=False, section_numbering="legal"),
+                )
+                story = renderer.build_story(toc_page_numbers=[2])
+                texts = self.paragraph_texts(story)
+                toc_title = next(
+                    flowable
+                    for flowable in story
+                    if isinstance(flowable, Paragraph)
+                    and flowable.getPlainText() == "Table of Contents"
+                )
+
+                self.assertLess(texts.index("Intro paragraph."), texts.index("Table of Contents"))
+                self.assertLess(texts.index("Table of Contents"), texts.index("I. First"))
+                self.assertNotIn("[TOC]", texts)
+                self.assertEqual(renderer._collect_section_entries(), [(2, "I. First")])
+                self.assertEqual(
+                    toc_title.style.fontSize,
+                    renderer.styles[expected_style[level]].fontSize,
+                )
+
     def test_toc_marker_overrides_default_toc_position(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -140,7 +181,7 @@ class SectionAndTocTests(unittest.TestCase):
             root = Path(temp)
             source = root / "document.md"
             source.write_text(
-                "```text\n[[TOC]]\n```\n\n## First\n",
+                "```text\n[[TOC]]\n# [TOC]\n```\n\n## First\n",
                 encoding="utf-8",
             )
             renderer = ConfiguredPdfRenderer(
@@ -151,6 +192,7 @@ class SectionAndTocTests(unittest.TestCase):
             texts = self.paragraph_texts(renderer.build_story())
 
             self.assertIn("[[TOC]]", texts)
+            self.assertIn("# [TOC]", texts)
             self.assertNotIn("Table of Contents", texts)
 
     def test_rendered_toc_links_resolve_to_each_section(self):

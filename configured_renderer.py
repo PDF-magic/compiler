@@ -244,6 +244,19 @@ class ConfiguredPdfRenderer(PdfRenderer):
         number = format_section_number(self.letter_settings.section_numbering, counts, level)
         return f"{number} {title}" if number else title
 
+    @staticmethod
+    def _toc_marker_level(line: str) -> int | None:
+        """Return the Markdown heading level for a TOC marker.
+
+        The legacy double-bracket TOC form returns 0 so callers can distinguish
+        it from heading markers without losing backward compatibility.
+        """
+        stripped = line.strip()
+        if stripped == "[[TOC]]":
+            return 0
+        match = re.fullmatch(r"(#{1,6})\s+\[TOC\]", stripped)
+        return len(match.group(1)) if match else None
+
     def _collect_section_entries(self) -> list[tuple[int, str]]:
         """Collect numbered section labels in source order, excluding fenced code."""
         entries: list[tuple[int, str]] = []
@@ -262,6 +275,8 @@ class ConfiguredPdfRenderer(PdfRenderer):
                     fence_marker = None
                 continue
             if in_fence:
+                continue
+            if self._toc_marker_level(raw_line) is not None:
                 continue
             match = re.match(r"^(#{2,6})\s+(.*)$", raw_line.rstrip())
             if not match:
@@ -285,23 +300,41 @@ class ConfiguredPdfRenderer(PdfRenderer):
                     in_fence = False
                     fence_marker = None
                 continue
-            if not in_fence and raw_line.strip() == "[[TOC]]":
+            if not in_fence and self._toc_marker_level(raw_line) is not None:
                 return True
         return False
 
-    def _toc_block(self, page_numbers: list[int] | None = None, *, force: bool = False):
+    def _toc_block(
+        self,
+        page_numbers: list[int] | None = None,
+        *,
+        force: bool = False,
+        title_level: int | None = None,
+    ):
         if not (force or self.letter_settings.include_toc):
             return []
 
         entries = self._collect_section_entries()
-        title_style = ParagraphStyle(
-            "TOCTitleX",
-            parent=self.styles["H1X"],
-            fontSize=14,
-            leading=17,
-            spaceBefore=4,
-            spaceAfter=10,
-        )
+        if title_level is None:
+            title_style = ParagraphStyle(
+                "TOCTitleX",
+                parent=self.styles["H1X"],
+                fontSize=14,
+                leading=17,
+                spaceBefore=4,
+                spaceAfter=10,
+            )
+        else:
+            title_parent = {
+                1: self.styles["H1X"],
+                2: self.styles["H2X"],
+                3: self.styles["H3X"],
+            }.get(title_level, self.styles["H4X"])
+            title_style = ParagraphStyle(
+                f"TOCTitleX{title_level}",
+                parent=title_parent,
+                spaceAfter=10,
+            )
         page_style = ParagraphStyle(
             "TOCPageX",
             parent=self.styles["BodyX"],
@@ -425,11 +458,18 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 if line.strip():
                     story.append(self.paragraph(line, self.styles["BodyX"]))
                 continue
-            if line.strip() == "[[TOC]]":
+            toc_marker_level = self._toc_marker_level(line)
+            if toc_marker_level is not None:
                 flush_paragraph()
                 flush_quote()
                 if not toc_inserted:
-                    story.extend(self._toc_block(toc_page_numbers, force=True))
+                    story.extend(
+                        self._toc_block(
+                            toc_page_numbers,
+                            force=True,
+                            title_level=toc_marker_level or None,
+                        )
+                    )
                     toc_inserted = True
                 continue
             if not line.strip():

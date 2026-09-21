@@ -477,13 +477,26 @@
       <fieldset class="wizard-page" data-step-title="Style">
         <legend>Style</legend>
         <div class="grid">
-          <label>Blockquote color
+          <label>Blockquote accent color
             <input name="blockquote_color" value="" placeholder="Same as URL accent color" pattern="#[0-9a-fA-F]{6}" maxlength="7" title="Enter a six-digit hex color, such as #2E732E, or leave blank to use the URL accent color" spellcheck="false">
-            <small>Leave blank to match links, or enter a hex color for the left rule and its 20% background tint.</small>
+            <small>Controls the left rule and, when enabled, the full border. Leave blank to match links.</small>
+          </label>
+          <label>Blockquote background color
+            <input name="blockquote_background_color" value="" placeholder="Same as blockquote accent" pattern="#[0-9a-fA-F]{6}" maxlength="7" title="Enter a six-digit hex color, such as #2E732E, or leave blank to use the blockquote accent color" spellcheck="false">
+            <small>Quote text automatically switches between black and white for contrast against the rendered background.</small>
+          </label>
+          <label>Blockquote background opacity (%)
+            <input type="number" name="blockquote_background_opacity" value="20" min="0" max="100" step="1" required>
+            <small>Use 0 for a transparent-looking background or 100 for a solid color.</small>
           </label>
           <label>Blockquote corner radius (pt)
             <input type="number" name="blockquote_corner_radius" value="10" min="0" max="64" step="1" required>
             <small>Rounds the right corners. Use 0 for square corners; short quotes limit the radius to half their height.</small>
+          </label>
+          <label class="check"><input type="checkbox" name="blockquote_border"> Draw a full border around blockquotes</label>
+          <label>Blockquote border width (pt)
+            <input type="number" name="blockquote_border_width" value="1" min="0.25" max="6" step="0.25" required>
+            <small>The border uses the blockquote accent color; the left accent rule remains emphasized.</small>
           </label>
           <details class="admonition-settings" open>
             <summary>GitHub-flavored admonition blockquotes</summary>
