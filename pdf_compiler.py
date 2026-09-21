@@ -60,12 +60,14 @@ class RefParagraph(Paragraph):
             self.canv.saveState()
             x = self.style.leftIndent - 10
             padding = 6
-            tint = colors.Color(
-                1 - (1 - accent.red) * 0.20,
-                1 - (1 - accent.green) * 0.20,
-                1 - (1 - accent.blue) * 0.20,
+            background_color = getattr(self.style, "quoteBackground", accent)
+            opacity = max(0.0, min(1.0, float(getattr(self.style, "quoteBackgroundOpacity", 0.20))))
+            fill = colors.Color(
+                1 - (1 - background_color.red) * opacity,
+                1 - (1 - background_color.green) * opacity,
+                1 - (1 - background_color.blue) * opacity,
             )
-            self.canv.setFillColor(tint)
+            self.canv.setFillColor(fill)
             corner_radius = self.style.quoteCornerRadius
             right = self.width - self.style.rightIndent + corner_radius
             bottom, top = -padding, self.height + padding
@@ -81,13 +83,19 @@ class RefParagraph(Paragraph):
                                right - radius + curve, top, right - radius, top)
             background.lineTo(x, top)
             background.close()
-            self.canv.drawPath(background, stroke=0, fill=1)
+
+            if getattr(self.style, "quoteBorder", False):
+                self.canv.setStrokeColor(accent)
+                self.canv.setLineWidth(float(getattr(self.style, "quoteBorderWidth", 1.0)))
+                self.canv.drawPath(background, stroke=1, fill=1)
+            else:
+                self.canv.drawPath(background, stroke=0, fill=1)
+
             self.canv.setStrokeColor(accent)
             self.canv.setLineWidth(2)
             self.canv.line(x, -padding, x, self.height + padding)
             self.canv.restoreState()
         super().draw()
-
 
 class TrackingDoc(SimpleDocTemplate):
     def __init__(self, *args, **kwargs):
