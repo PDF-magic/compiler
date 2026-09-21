@@ -99,20 +99,38 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
         styles["QuoteX"].rightIndent = 0.18 * inch + typography.blockquote_corner_radius
         return styles
 
-    def _toc_block(self, page_numbers: list[int] | None = None, *, force: bool = False):
+    def _toc_block(
+        self,
+        page_numbers: list[int] | None = None,
+        *,
+        force: bool = False,
+        title_level: int | None = None,
+    ):
         if not (force or self.letter_settings.include_toc):
             return []
 
         entries = self._collect_section_entries()
         typography = self.typography
-        title_style = ParagraphStyle(
-            "TOCTitleX",
-            parent=self.styles["H1X"],
-            fontSize=typography.toc_title_font_size,
-            leading=self._scaled_leading(typography.toc_title_font_size, 14.0, 17.0),
-            spaceBefore=4,
-            spaceAfter=10,
-        )
+        if title_level is None:
+            title_style = ParagraphStyle(
+                "TOCTitleX",
+                parent=self.styles["H1X"],
+                fontSize=typography.toc_title_font_size,
+                leading=self._scaled_leading(typography.toc_title_font_size, 14.0, 17.0),
+                spaceBefore=4,
+                spaceAfter=10,
+            )
+        else:
+            title_parent = {
+                1: self.styles["H1X"],
+                2: self.styles["H2X"],
+                3: self.styles["H3X"],
+            }.get(title_level, self.styles["H4X"])
+            title_style = ParagraphStyle(
+                f"TOCTitleX{title_level}",
+                parent=title_parent,
+                spaceAfter=10,
+            )
         page_style = ParagraphStyle(
             "TOCPageX",
             parent=self.styles["BodyX"],
