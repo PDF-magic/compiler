@@ -33,6 +33,7 @@ from reportlab.platypus import (
 
 
 from emoji_renderer import EmojiParagraph as Paragraph
+from page_breaks import PAGE_BREAK_SENTINEL, normalize_page_breaks
 
 
 SIGNATURE_SENTINEL = "@@PDF_COMPILER_SIGNATURE_BLOCK@@"
@@ -285,6 +286,7 @@ class PdfRenderer:
         raw = self.source.read_text(encoding="utf-8")
         body = extract_body(raw, start_heading)
         self.body_text, self.note_defs = extract_footnotes(body)
+        self.body_text = normalize_page_breaks(self.body_text)
         self._prepare_signature_directives()
         self.prime_note_numbers()
         self.styles = self._styles()
@@ -519,7 +521,9 @@ class PdfRenderer:
         text = self.linkify_urls(text, underline=self.underline_links, color=self.link_color)
         return text, refs
 
-    def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph:
+    def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph | PageBreak:
+        if text.strip() == PAGE_BREAK_SENTINEL:
+            return PageBreak()
         rendered, refs = self.markdown_inline(text, True)
         return RefParagraph(rendered, style, refs)
 
