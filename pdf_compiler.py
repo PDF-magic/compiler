@@ -19,7 +19,7 @@ import weakref
 from PIL import Image as PILImage
 from PIL import ImageChops, ImageDraw, ImageOps
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -436,6 +436,22 @@ class PdfRenderer:
                 spaceAfter=20,
             )
         )
+        styles.add(
+            ParagraphStyle(
+                "QuotationBodyX",
+                parent=styles["QuoteX"],
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "QuotationSourceX",
+                parent=styles["QuoteX"],
+                fontName="Times-Italic",
+                fontSize=10,
+                leading=13,
+                alignment=TA_RIGHT,
+            )
+        )
         for kind, color in ADMONITION_DEFAULT_COLORS.items():
             prefix = f"Admonition{kind.title()}"
             styles.add(
@@ -514,10 +530,76 @@ class PdfRenderer:
             )
         return "".join(parts)
 
+    @staticmethod
+    def quotation_source(text: str) -> str | None:
+        match = re.fullmatch(r"\[!SOURCE\]\s+(.+?)\s*", text.strip(), re.IGNORECASE)
+        return match.group(1) if match else None
+
+    def quotation_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
+        """Render a first-class quotation with an optional source attribution."""
+        content_lines = quote_lines[1:]
+        source = None
+        source_index = next(
+            (index for index in range(len(content_lines) - 1, -1, -1)
+             if content_lines[index].strip()),
+            None,
+        )
+        if source_index is not None:
+            source = self.quotation_source(content_lines[source_index])
+            if source is not None:
+                content_lines.pop(source_index)
+
+        body_chunks = []
+        body_refs = []
+        for line in content_lines:
+            rendered, refs = self.markdown_inline(line.strip(), True)
+            body_chunks.append(rendered)
+            body_refs.extend(refs)
+
+        flowables: list[RefParagraph] = []
+        while body_chunks and not body_chunks[0]:
+            body_chunks.pop(0)
+        while body_chunks and not body_chunks[-1]:
+            body_chunks.pop()
+        body_text = "<br/>".join(body_chunks)
+        if body_text:
+            body_style = self.styles["QuotationBodyX"]
+            if source:
+                body_style = ParagraphStyle(
+                    "QuotationBodyJoinedX",
+                    parent=body_style,
+                    quoteRoundBottom=False,
+                    quotePaddingBottom=2,
+                    spaceAfter=0,
+                )
+            flowables.append(RefParagraph(body_text, body_style, body_refs))
+
+        if source:
+            rendered_source, source_refs = self.markdown_inline(source, True)
+            source_style = self.styles["QuotationSourceX"]
+            if body_text:
+                source_style = ParagraphStyle(
+                    "QuotationSourceJoinedX",
+                    parent=source_style,
+                    quoteRoundTop=False,
+                    quotePaddingTop=2,
+                    spaceBefore=0,
+                )
+            flowables.append(
+                RefParagraph(f"— {rendered_source}", source_style, source_refs)
+            )
+
+        if not flowables:
+            flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
+        return flowables
+
     def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
         """Render a normal quote or a GitHub-flavored admonition blockquote."""
         if not quote_lines:
             return []
+
+        if re.fullmatch(r"\[!QUOTE\]\s*", quote_lines[0].strip(), re.IGNORECASE):
+            return self.quotation_flowables(quote_lines)
 
         kind = self.admonition_kind(quote_lines[0])
         if not kind or not self.admonitions_enabled():

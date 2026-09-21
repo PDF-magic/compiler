@@ -180,6 +180,22 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
         )
         styles["QuoteX"].rightIndent = 0.18 * inch + typography.blockquote_corner_radius
 
+        for name in ("QuotationBodyX", "QuotationSourceX"):
+            style = styles[name]
+            style.fontSize = typography.body_font_size
+            style.leading = body_leading
+            style.leftIndent = styles["QuoteX"].leftIndent
+            style.rightIndent = styles["QuoteX"].rightIndent
+            style.quoteCornerRadius = typography.blockquote_corner_radius
+            style.quoteAccent = quote_accent
+            style.quoteBackground = quote_background
+            style.quoteBackgroundOpacity = typography.blockquote_background_opacity
+            style.quoteBorder = typography.blockquote_border
+            style.quoteBorderWidth = typography.blockquote_border_width
+            style.textColor = styles["QuoteX"].textColor
+        styles["QuotationSourceX"].fontSize = typography.body_font_size * 0.9
+        styles["QuotationSourceX"].leading = body_leading
+
         for kind in ADMONITION_TYPES:
             prefix = f"Admonition{kind.title()}"
             accent = colors.HexColor(

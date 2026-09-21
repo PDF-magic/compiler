@@ -152,7 +152,7 @@ The compiler supports:
 - an optional visible table of contents with hierarchical indentation and page numbers
 - Markdown footnotes placed at the bottom of the page where referenced, including continuation pages
 - `{{key}}` interpolation for stable references to final Markdown footnote numbers
-- basic bold, italic, inline code, links, block quotes, GitHub-flavored admonition blockquotes, lists, rules, and local images
+- basic bold, italic, inline code, links, block quotes, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
 - configurable PDF metadata
@@ -174,5 +174,17 @@ The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPO
 ```
 
 The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers are centered in Times small caps, with lowercase letters rendered as reduced capitals. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
+
+### Sourced quotation blocks
+
+Use a `QUOTE` marker and a final `SOURCE` line to keep the quotation text and its attribution distinct in the document source:
+
+```markdown
+> [!QUOTE]
+> The important thing is not to stop questioning.
+> [!SOURCE] Albert Einstein
+```
+
+Neither marker is printed. The source renders beneath the quotation, right-aligned and prefixed with an em dash. Inline Markdown, links, and footnote references remain available in both the quotation and its source.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
