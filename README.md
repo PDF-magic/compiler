@@ -55,7 +55,17 @@ Introductory text.
 ## First section
 ```
 
-A standalone `[[TOC]]` marker enables the visible TOC even when the configurator checkbox is off. When the checkbox is on, the marker overrides the default placement at the start of the document. Only the first standalone marker inserts the TOC; later standalone markers are ignored. Markers inside fenced code blocks remain literal text, so documentation examples can safely show the syntax.
+The TOC marker can also be written as a Markdown heading using `[TOC]` as the complete heading text. All six heading levels are supported, and the generated “Table of Contents” title uses the corresponding heading style:
+
+```markdown
+# [TOC]
+
+## First section
+```
+
+The same works with `## [TOC]` through `###### [TOC]`. Heading-form markers are insertion directives only: they are not numbered, added to the PDF outline, or listed inside the TOC itself.
+
+A standalone TOC marker enables the visible TOC even when the configurator checkbox is off. When the checkbox is on, the marker overrides the default placement at the start of the document. Only the first standalone marker inserts the TOC; later standalone markers are ignored. Both `[[TOC]]` and heading-form markers inside fenced code blocks remain literal text, so documentation examples can safely show the syntax.
 
 The preflight validator reports line and column locations for required legal-style italics such as `_See_`, `_See, e.g.,_`, `_Id._`, `_Ibid._`, `_supra_`, `_infra_`, `_available at_`, and `_note_ 4`. These checks are case-insensitive. It also checks HTTP(S) URLs for valid structure and resolvable public hostnames, rejecting malformed, nonexistent, localhost, and private-network targets. HTTP URLs must use HTTPS when the same public host can complete a valid TLS connection; HTTP remains allowed when HTTPS is unavailable. Root URLs omit the trailing slash (`https://example.com`, not `https://example.com/`), while trailing slashes on non-root paths remain allowed. Validation is read-only and does not rewrite Markdown.
 

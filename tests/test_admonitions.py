@@ -77,6 +77,26 @@ class AdmonitionTests(unittest.TestCase):
                 renderer.styles["AdmonitionWarningBodyX"].quoteAccent,
                 colors.HexColor("#445566"),
             )
+            self.assertEqual(
+                renderer.styles["AdmonitionTipBodyX"].quoteBackground,
+                colors.HexColor("#112233"),
+            )
+
+    def test_explicit_blockquote_background_applies_to_admonitions(self):
+        typography = TypographySettings(
+            blockquote_background_color="#ABCDEF",
+            admonition_colors={"NOTE": "#123456"},
+        )
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = TypographyPdfRenderer(
+                self._source(root),
+                root / "output.pdf",
+                typography=typography,
+            )
+            style = renderer.styles["AdmonitionNoteBodyX"]
+            self.assertEqual(style.quoteAccent, colors.HexColor("#123456"))
+            self.assertEqual(style.quoteBackground, colors.HexColor("#ABCDEF"))
 
     def test_disabling_admonitions_preserves_marker_as_quote_text(self):
         typography = TypographySettings(admonitions_enabled=False)

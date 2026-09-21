@@ -35,6 +35,10 @@ class TypographySettings:
     page_number_font_size: float = 8.5
     blockquote_corner_radius: float = 10.0
     blockquote_color: str = ""
+    blockquote_background_color: str = ""
+    blockquote_background_opacity: float = 0.20
+    blockquote_border: bool = False
+    blockquote_border_width: float = 1.0
     admonitions_enabled: bool = True
     admonition_headers: dict[str, str] = field(
         default_factory=lambda: {kind: "" for kind in ADMONITION_TYPES}
@@ -71,6 +75,16 @@ class TypographySettings:
             raise ValueError("Blockquote corner radius must be between 0 and 64 pt.")
         if self.blockquote_color and not re.fullmatch(r"#[0-9a-fA-F]{6}", self.blockquote_color):
             raise ValueError("Blockquote color must be a six-digit hex color, such as #2E732E.")
+        if self.blockquote_background_color and not re.fullmatch(
+            r"#[0-9a-fA-F]{6}", self.blockquote_background_color
+        ):
+            raise ValueError(
+                "Blockquote background color must be a six-digit hex color, such as #2E732E."
+            )
+        if not 0.0 <= self.blockquote_background_opacity <= 1.0:
+            raise ValueError("Blockquote background opacity must be between 0 and 100 percent.")
+        if not 0.25 <= self.blockquote_border_width <= 6.0:
+            raise ValueError("Blockquote border width must be between 0.25 and 6 pt.")
 
         self.admonition_headers = {
             kind: self.admonition_headers.get(kind, "").strip()
@@ -94,6 +108,27 @@ class TypographySettings:
                 raise ValueError(
                     f"{kind.title()} admonition indent must be between 0 and 144 pt."
                 )
+
+
+def _contrast_text_color(background, opacity: float):
+    """Choose black or white text against a quote background blended onto white."""
+
+    def linearize(channel: float) -> float:
+        if channel <= 0.04045:
+            return channel / 12.92
+        return ((channel + 0.055) / 1.055) ** 2.4
+
+    red = 1 - (1 - background.red) * opacity
+    green = 1 - (1 - background.green) * opacity
+    blue = 1 - (1 - background.blue) * opacity
+    luminance = (
+        0.2126 * linearize(red)
+        + 0.7152 * linearize(green)
+        + 0.0722 * linearize(blue)
+    )
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    return colors.black if black_contrast >= white_contrast else colors.white
 
 
 class TypographyPdfRenderer(ConfiguredPdfRenderer):
@@ -128,8 +163,21 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
 
         styles["FootX"].fontSize = typography.footnote_font_size
         styles["FootX"].leading = self._scaled_leading(typography.footnote_font_size, 8.8, 9.9)
+        quote_accent = colors.HexColor(typography.blockquote_color or self.link_color)
+        quote_background = colors.HexColor(
+            typography.blockquote_background_color
+            or typography.blockquote_color
+            or self.link_color
+        )
         styles["QuoteX"].quoteCornerRadius = typography.blockquote_corner_radius
-        styles["QuoteX"].quoteAccent = colors.HexColor(typography.blockquote_color or self.link_color)
+        styles["QuoteX"].quoteAccent = quote_accent
+        styles["QuoteX"].quoteBackground = quote_background
+        styles["QuoteX"].quoteBackgroundOpacity = typography.blockquote_background_opacity
+        styles["QuoteX"].quoteBorder = typography.blockquote_border
+        styles["QuoteX"].quoteBorderWidth = typography.blockquote_border_width
+        styles["QuoteX"].textColor = _contrast_text_color(
+            quote_background, typography.blockquote_background_opacity
+        )
         styles["QuoteX"].rightIndent = 0.18 * inch + typography.blockquote_corner_radius
 
         for kind in ADMONITION_TYPES:
@@ -139,6 +187,11 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
                 or typography.blockquote_color
                 or self.link_color
             )
+            background = (
+                colors.HexColor(typography.blockquote_background_color)
+                if typography.blockquote_background_color
+                else accent
+            )
             for suffix in ("BodyX", "HeaderX"):
                 style = styles[f"{prefix}{suffix}"]
                 style.fontSize = typography.body_font_size
@@ -147,6 +200,10 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
                 style.rightIndent = 0.18 * inch + typography.blockquote_corner_radius
                 style.quoteCornerRadius = typography.blockquote_corner_radius
                 style.quoteAccent = accent
+                style.quoteBackground = background
+                style.textColor = _contrast_text_color(
+                    background, typography.blockquote_background_opacity
+                )
         return styles
 
     def admonitions_enabled(self) -> bool:
@@ -155,20 +212,38 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
     def admonition_header(self, kind: str) -> str:
         return self.typography.admonition_headers.get(kind, "")
 
-    def _toc_block(self, page_numbers: list[int] | None = None, *, force: bool = False):
+    def _toc_block(
+        self,
+        page_numbers: list[int] | None = None,
+        *,
+        force: bool = False,
+        title_level: int | None = None,
+    ):
         if not (force or self.letter_settings.include_toc):
             return []
 
         entries = self._collect_section_entries()
         typography = self.typography
-        title_style = ParagraphStyle(
-            "TOCTitleX",
-            parent=self.styles["H1X"],
-            fontSize=typography.toc_title_font_size,
-            leading=self._scaled_leading(typography.toc_title_font_size, 14.0, 17.0),
-            spaceBefore=4,
-            spaceAfter=10,
-        )
+        if title_level is None:
+            title_style = ParagraphStyle(
+                "TOCTitleX",
+                parent=self.styles["H1X"],
+                fontSize=typography.toc_title_font_size,
+                leading=self._scaled_leading(typography.toc_title_font_size, 14.0, 17.0),
+                spaceBefore=4,
+                spaceAfter=10,
+            )
+        else:
+            title_parent = {
+                1: self.styles["H1X"],
+                2: self.styles["H2X"],
+                3: self.styles["H3X"],
+            }.get(title_level, self.styles["H4X"])
+            title_style = ParagraphStyle(
+                f"TOCTitleX{title_level}",
+                parent=title_parent,
+                spaceAfter=10,
+            )
         page_style = ParagraphStyle(
             "TOCPageX",
             parent=self.styles["BodyX"],

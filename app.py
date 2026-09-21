@@ -85,7 +85,8 @@ def index():
     )
     return page.replace(
         "</body>",
-        '  <script src="/static/letterhead-presets.js"></script>\n</body>',
+        '  <script src="/static/letterhead-presets.js"></script>\n'
+        '  <script src="/static/plain-link-options.js"></script>\n</body>',
         1,
     )
 
@@ -167,6 +168,14 @@ def render_pdf():
                 line_spacing=form_float("line_spacing", 1.3),
                 blockquote_corner_radius=form_float("blockquote_corner_radius", 10.0),
                 blockquote_color=request.form.get("blockquote_color", "").strip(),
+                blockquote_background_color=request.form.get(
+                    "blockquote_background_color", ""
+                ).strip(),
+                blockquote_background_opacity=(
+                    form_float("blockquote_background_opacity", 20.0) / 100.0
+                ),
+                blockquote_border=truthy("blockquote_border"),
+                blockquote_border_width=form_float("blockquote_border_width", 1.0),
                 admonitions_enabled=(
                     "admonitions_enabled" not in request.form
                     or truthy("admonitions_enabled")
@@ -220,6 +229,7 @@ def render_pdf():
             keywords=request.form.get("keywords", "").strip() or None,
             smart_quotes=truthy("smart_quotes"),
             underline_links=truthy("underline_links"),
+            hide_url_scheme=truthy("hide_url_scheme"),
             link_color=link_color,
         )
         renderer.build()
