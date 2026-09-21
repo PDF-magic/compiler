@@ -54,6 +54,14 @@ class TypographyRendererTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data.startswith(b"%PDF-"))
 
+    def test_heading_toc_marker_renders_with_typography(self):
+        from app import app
+        response = app.test_client().post("/render", data={
+            "markdown": "Intro.\n\n### [TOC]\n\n## Heading\n\nBody.",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data.startswith(b"%PDF-"))
+
     def test_typography_ranges_are_validated(self):
         with self.assertRaises(ValueError):
             TypographySettings(body_font_size=5.9)
