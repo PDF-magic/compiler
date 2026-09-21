@@ -1,5 +1,7 @@
 import unittest
 from pathlib import Path
+
+import pymupdf
 from tempfile import TemporaryDirectory
 
 from reportlab.lib.units import inch
@@ -38,6 +40,19 @@ class FirstPageLayoutTests(unittest.TestCase):
             visible_document_title="IN RE FILE NO. SR-OCC-2025-801",
         )
         self.assertGreaterEqual(renderer.top, 1.95 * inch)
+
+    def test_quote_number_renders_in_top_right(self):
+        renderer = self.renderer(
+            settings=LetterSettings(show_date=False, quote_number="Q-1042"),
+        )
+        renderer.build()
+
+        with pymupdf.open(renderer.output) as pdf:
+            matches = pdf[0].search_for("Quote # Q-1042")
+            self.assertTrue(matches)
+            self.assertGreater(matches[0].x0, pdf[0].rect.width / 2)
+
+        self.assertGreaterEqual(renderer.top, 1.55 * inch)
 
 
 if __name__ == "__main__":

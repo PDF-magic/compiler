@@ -23,6 +23,7 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
             self.logo
             or self.wordmark
             or self.visible_document_title
+            or settings.quote_number.strip()
             or format_header_date(settings)
             or settings.submission_subtitle.strip()
         )
@@ -36,10 +37,11 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
         settings = self.letter_settings
         date_text = format_header_date(settings)
         subtitle = settings.submission_subtitle.strip()
+        quote_number = settings.quote_number.strip()
         first_header = settings.first_page_header.strip()
         prepared = self._prepared_logo()
         has_brand = prepared is not None or self.wordmark
-        has_letterhead_row = bool(has_brand or self.visible_document_title or date_text or subtitle)
+        has_letterhead_row = bool(has_brand or self.visible_document_title or quote_number or date_text or subtitle)
         if not first_header and not has_letterhead_row:
             return
 
@@ -79,7 +81,7 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
 
             if self.visible_document_title:
                 title_left = doc.leftMargin + (2.05 * inch if has_brand else 0)
-                title_right = self.page_width - doc.rightMargin
+                title_right = self.page_width - doc.rightMargin - (1.45 * inch if quote_number else 0)
                 title_width = max(1.0 * inch, title_right - title_left)
                 title_style = ParagraphStyle(
                     "VisibleDocumentTitle",
@@ -96,6 +98,9 @@ class FirstPagePdfRenderer(TypographyPdfRenderer):
                 title.drawOn(canvas, title_left, row_top_y - title_height)
 
             text_x = self.page_width - doc.rightMargin
+            if quote_number:
+                canvas.setFont("Times-Bold", self.typography.subtitle_font_size)
+                canvas.drawRightString(text_x, row_top_y - 0.18 * inch, f"Quote # {quote_number}")
             if date_text:
                 canvas.setFont("Times-Roman", self.typography.date_font_size)
                 canvas.drawRightString(text_x, self.page_height - (row_top + 0.62) * inch, date_text)

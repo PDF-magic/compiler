@@ -148,6 +148,7 @@ def render_pdf():
                 custom_date_format=request.form.get("custom_date_format", "%B %d, %Y"),
                 date_value=request.form.get("date_value") or None,
                 submission_subtitle=request.form.get("submission_subtitle", "").strip(),
+                quote_number=request.form.get("quote_number", "").strip(),
                 addressee=request.form.get("addressee", "").strip(),
                 addressee_box=truthy("addressee_box"),
                 logo_treatment=request.form.get("logo_treatment", "preserve"),
