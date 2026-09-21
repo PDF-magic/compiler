@@ -19,7 +19,7 @@ import weakref
 from PIL import Image as PILImage
 from PIL import ImageChops, ImageDraw, ImageOps
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -436,6 +436,32 @@ class PdfRenderer:
                 spaceAfter=20,
             )
         )
+        styles.add(
+            ParagraphStyle(
+                "QuotationBodyX",
+                parent=styles["QuoteX"],
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "QuotationSourceX",
+                parent=styles["QuoteX"],
+                fontName="Times-Italic",
+                fontSize=10,
+                leading=13,
+                alignment=TA_RIGHT,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "QuotationFootnoteX",
+                parent=styles["QuoteX"],
+                fontSize=8.8,
+                leading=9.9,
+                spaceBefore=0,
+                spaceAfter=0,
+            )
+        )
         for kind, color in ADMONITION_DEFAULT_COLORS.items():
             prefix = f"Admonition{kind.title()}"
             styles.add(
@@ -514,10 +540,147 @@ class PdfRenderer:
             )
         return "".join(parts)
 
+    @staticmethod
+    def quotation_source(text: str) -> str | None:
+        match = re.fullmatch(
+            r"\[!(?:SOURCE|SRC)\]\s+(.+?)\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        return match.group(1) if match else None
+
+    @staticmethod
+    def quotation_footnote_definition(text: str) -> tuple[str, str] | None:
+        match = re.fullmatch(r"\[\^([^\]]+)\]:\s*(.*?)\s*", text.strip())
+        return (match.group(1), match.group(2)) if match else None
+
+    def quotation_local_notes(self, quote_lines: list[str]) -> dict[str, str]:
+        return dict(
+            definition
+            for line in quote_lines[1:]
+            if (definition := self.quotation_footnote_definition(line)) is not None
+        )
+
+    def quotation_inline(
+        self,
+        text: str,
+        local_notes: dict[str, str],
+    ) -> tuple[str, list[int]]:
+        """Render quote-local citations without consuming document note numbers."""
+        placeholders: dict[str, str] = {}
+
+        def replace_local_ref(match: re.Match[str]) -> str:
+            key = match.group(1)
+            if key not in local_notes:
+                return match.group(0)
+            placeholder = f"@@QUOTEFOOTNOTE{len(placeholders)}@@"
+            placeholders[placeholder] = key
+            return placeholder
+
+        rendered, refs = self.markdown_inline(
+            self.note_ref_re.sub(replace_local_ref, text),
+            True,
+        )
+        for placeholder, key in placeholders.items():
+            rendered = rendered.replace(
+                placeholder,
+                f"<super>{html.escape(key)}</super>",
+            )
+        return rendered, refs
+
+    def quotation_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
+        """Render a first-class quotation with an optional source attribution."""
+        source = None
+        body_lines: list[str] = []
+        local_note_items: list[tuple[str, str]] = []
+        for line in quote_lines[1:]:
+            parsed_source = self.quotation_source(line)
+            if parsed_source is not None:
+                source = parsed_source
+                continue
+            definition = self.quotation_footnote_definition(line)
+            if definition is not None:
+                local_note_items.append(definition)
+                continue
+            body_lines.append(line)
+
+        local_notes = dict(local_note_items)
+
+        body_chunks = []
+        body_refs = []
+        for line in body_lines:
+            rendered, refs = self.quotation_inline(line.strip(), local_notes)
+            body_chunks.append(rendered)
+            body_refs.extend(refs)
+
+        flowables: list[RefParagraph] = []
+        while body_chunks and not body_chunks[0]:
+            body_chunks.pop(0)
+        while body_chunks and not body_chunks[-1]:
+            body_chunks.pop()
+        body_text = "<br/>".join(body_chunks)
+        if body_text:
+            body_style = self.styles["QuotationBodyX"]
+            if local_note_items or source:
+                body_style = ParagraphStyle(
+                    "QuotationBodyJoinedX",
+                    parent=body_style,
+                    quoteRoundBottom=False,
+                    quotePaddingBottom=0,
+                    spaceAfter=0,
+                )
+            flowables.append(RefParagraph(body_text, body_style, body_refs))
+
+        for index, (key, note_text) in enumerate(local_note_items):
+            rendered_note, note_refs = self.quotation_inline(note_text, local_notes)
+            note_style = self.styles["QuotationFootnoteX"]
+            has_preceding = bool(flowables)
+            has_following = index < len(local_note_items) - 1 or bool(source)
+            if has_preceding or has_following:
+                note_style = ParagraphStyle(
+                    f"QuotationFootnoteJoinedX{index}",
+                    parent=note_style,
+                    quoteRoundTop=not has_preceding,
+                    quoteRoundBottom=not has_following,
+                    quotePaddingTop=0 if has_preceding else 6,
+                    quotePaddingBottom=0 if has_following else 6,
+                    spaceBefore=0,
+                    spaceAfter=0,
+                )
+            flowables.append(
+                RefParagraph(
+                    f"{html.escape(key)}. {rendered_note}",
+                    note_style,
+                    note_refs,
+                )
+            )
+
+        if source:
+            rendered_source, source_refs = self.quotation_inline(source, local_notes)
+            source_style = self.styles["QuotationSourceX"]
+            if flowables:
+                source_style = ParagraphStyle(
+                    "QuotationSourceJoinedX",
+                    parent=source_style,
+                    quoteRoundTop=False,
+                    quotePaddingTop=0,
+                    spaceBefore=0,
+                )
+            flowables.append(
+                RefParagraph(f"— {rendered_source}", source_style, source_refs)
+            )
+
+        if not flowables:
+            flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
+        return flowables
+
     def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
         """Render a normal quote or a GitHub-flavored admonition blockquote."""
         if not quote_lines:
             return []
+
+        if re.fullmatch(r"\[!QUOTE\]\s*", quote_lines[0].strip(), re.IGNORECASE):
+            return self.quotation_flowables(quote_lines)
 
         kind = self.admonition_kind(quote_lines[0])
         if not kind or not self.admonitions_enabled():
@@ -586,8 +749,30 @@ class PdfRenderer:
 
     def prime_note_numbers(self) -> None:
         """Assign final note numbers from real footnote citations before rendering."""
-        for match in self.note_ref_re.finditer(self.body_text):
-            self.note_number(match.group(1))
+        lines = self.body_text.splitlines()
+        index = 0
+        while index < len(lines):
+            if not lines[index].startswith(">"):
+                for match in self.note_ref_re.finditer(lines[index]):
+                    self.note_number(match.group(1))
+                index += 1
+                continue
+
+            quote_lines = []
+            while index < len(lines) and lines[index].startswith(">"):
+                quote_lines.append(lines[index].lstrip(">").strip())
+                index += 1
+
+            is_quotation = bool(quote_lines) and re.fullmatch(
+                r"\[!QUOTE\]\s*",
+                quote_lines[0],
+                re.IGNORECASE,
+            )
+            local_notes = self.quotation_local_notes(quote_lines) if is_quotation else {}
+            for line in quote_lines:
+                for match in self.note_ref_re.finditer(line):
+                    if match.group(1) not in local_notes:
+                        self.note_number(match.group(1))
 
     def interpolate_note_numbers(self, text: str, *, linked: bool = False) -> str:
         """Replace ``{{key}}`` with an already-assigned footnote number."""
