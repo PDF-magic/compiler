@@ -17,6 +17,7 @@ from configured_renderer import (
     IMAGE_TREATMENTS,
     PAGE_NUMBER_STYLES,
     SECTION_NUMBERING_STYLES,
+    LICENSE_PRESETS,
     LetterSettings,
 )
 from first_page_layout import FirstPagePdfRenderer
@@ -79,6 +80,7 @@ def index():
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
         section_numbering_styles=SECTION_NUMBERING_STYLES,
+        license_presets=LICENSE_PRESETS,
         admonition_types=ADMONITION_TYPES,
         admonition_default_colors=ADMONITION_DEFAULT_COLORS,
         today=date.today().isoformat(),
@@ -163,6 +165,8 @@ def render_pdf():
                 page_number_style=request.form.get("page_number_style", "none"),
                 include_toc=truthy("include_toc"),
                 section_numbering=request.form.get("section_numbering", "legal"),
+                license_preset=request.form.get("license_preset", "none"),
+                license_subtitle=request.form.get("license_subtitle", "").strip(),
             )
             typography = TypographySettings(
                 body_font_size=form_float("body_font_size", 12.0),
