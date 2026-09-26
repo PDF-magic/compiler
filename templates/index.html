@@ -254,7 +254,7 @@
     <div class="wizard">
       <div class="wizard-progress" aria-live="polite">
         <div class="wizard-progress-row">
-          <span id="step-count" class="step-count">Step 1 of 10</span>
+          <span id="step-count" class="step-count">Step 1 of 11</span>
           <span id="step-title" class="step-title">Document</span>
         </div>
         <div class="progress-track" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>
@@ -270,7 +270,8 @@
         <button class="step-tab" type="button" data-step-target="6">Letterhead</button>
         <button class="step-tab" type="button" data-step-target="7">Headers</button>
         <button class="step-tab" type="button" data-step-target="8">Style</button>
-        <button class="step-tab" type="button" data-step-target="9">Validate document</button>
+        <button class="step-tab" type="button" data-step-target="9">Licensing</button>
+        <button class="step-tab" type="button" data-step-target="10">Validate document</button>
       </nav>
 
       <fieldset class="wizard-page" data-step-title="Document">
@@ -538,6 +539,24 @@
               <input id="link-color" name="link_color" value="#2E732E" pattern="#[0-9a-fA-F]{6}" maxlength="7" required aria-label="Custom hex color" title="Enter a six-digit hex color, such as #2E732E" spellcheck="false">
             </div>
           </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Licensing">
+        <legend>Licensing</legend>
+        <div class="grid">
+          <label>License preset
+            <select name="license_preset">
+              {% for value, label in license_presets.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>CC BY-SA 4.0 adds a compact reference at the end. GFDL 1.3 skips that boilerplate and appends the full license on new pages.</small>
+          </label>
+          <label class="full">License subtitle / additional note
+            <input name="license_subtitle" placeholder="Optional attribution, copyright notice, or extra licensing context">
+            <small>With CC BY-SA this appears beneath the compact reference. With GFDL it appears at the start of the appended license. With no preset it becomes a standalone compact end note.</small>
+          </label>
         </div>
       </fieldset>
 

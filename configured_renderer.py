@@ -58,6 +58,15 @@ SECTION_NUMBERING_STYLES = {
     "none": "No visible section numbers",
 }
 
+LICENSE_PRESETS = {
+    "none": "No preset",
+    "cc_by_sa_4_0": "CC BY-SA 4.0",
+    "gfdl_1_3": "GNU Free Documentation License 1.3",
+}
+
+CC_BY_SA_4_0_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
+GFDL_1_3_PATH = Path(__file__).resolve().parent / "assets" / "gfdl-1.3.txt"
+
 
 @dataclass(slots=True)
 class LetterSettings:
@@ -77,6 +86,8 @@ class LetterSettings:
     page_number_style: str = "none"
     include_toc: bool = False
     section_numbering: str = "legal"
+    license_preset: str = "none"
+    license_subtitle: str = ""
 
     def __post_init__(self) -> None:
         if self.date_format not in DATE_FORMATS:
@@ -87,6 +98,8 @@ class LetterSettings:
             raise ValueError(f"Unknown page-number style: {self.page_number_style}")
         if self.section_numbering not in SECTION_NUMBERING_STYLES:
             raise ValueError(f"Unknown section-numbering style: {self.section_numbering}")
+        if self.license_preset not in LICENSE_PRESETS:
+            raise ValueError(f"Unknown license preset: {self.license_preset}")
         if self.date_value:
             date.fromisoformat(self.date_value)
 
@@ -391,6 +404,117 @@ class ConfiguredPdfRenderer(PdfRenderer):
             Paragraph(f'<link href="{target}">{page}</link>', page_style),
         ]
 
+    def _license_reference_block(self):
+        """Return the compact end-of-document licensing reference, when requested."""
+        preset = self.letter_settings.license_preset
+        subtitle = self.letter_settings.license_subtitle.strip()
+        if preset == "gfdl_1_3" or (preset == "none" and not subtitle):
+            return []
+
+        style = ParagraphStyle(
+            "LicenseReferenceX",
+            parent=self.styles["FootX"],
+            fontSize=max(7.0, self.styles["FootX"].fontSize),
+            leading=max(9.0, self.styles["FootX"].leading),
+            textColor=colors.HexColor("#4B5563"),
+            spaceBefore=0,
+            spaceAfter=0,
+        )
+        story = [
+            Spacer(1, 14),
+            HRFlowable(width="100%", thickness=0.45, color=colors.HexColor("#B8C0CC")),
+            Spacer(1, 5),
+        ]
+        if preset == "cc_by_sa_4_0":
+            story.append(
+                Paragraph(
+                    'Licensed under the <link href="' + CC_BY_SA_4_0_URL +
+                    '" color="' + self.link_color +
+                    '">Creative Commons Attribution-ShareAlike 4.0 International license (CC BY-SA 4.0)</link>.',
+                    style,
+                )
+            )
+        if subtitle:
+            rendered, _ = self.markdown_inline(subtitle, False)
+            subtitle_style = ParagraphStyle(
+                "LicenseSubtitleX",
+                parent=style,
+                fontName="Times-Italic",
+                spaceBefore=2,
+            )
+            story.append(Paragraph(rendered, subtitle_style))
+        return story
+
+    def _gfdl_appendix(self):
+        """Append a verbatim GFDL 1.3 copy as readable document pages."""
+        if self.letter_settings.license_preset != "gfdl_1_3":
+            return []
+
+        license_text = GFDL_1_3_PATH.read_text(encoding="utf-8").strip()
+        blocks = [block.strip() for block in re.split(r"\n\s*\n", license_text) if block.strip()]
+        if not blocks:
+            return []
+
+        title_style = ParagraphStyle(
+            "GFDLTitleX",
+            parent=self.styles["H1X"],
+            fontSize=14,
+            leading=17,
+            spaceBefore=0,
+            spaceAfter=4,
+        )
+        section_style = ParagraphStyle(
+            "GFDLSectionX",
+            parent=self.styles["H2X"],
+            fontSize=10,
+            leading=12,
+            spaceBefore=8,
+            spaceAfter=4,
+        )
+        body_style = ParagraphStyle(
+            "GFDLBodyX",
+            parent=self.styles["BodyX"],
+            fontSize=8.5,
+            leading=10.5,
+            spaceBefore=0,
+            spaceAfter=5,
+        )
+        subtitle_style = ParagraphStyle(
+            "GFDLSubtitleX",
+            parent=body_style,
+            fontName="Times-Italic",
+            fontSize=9,
+            leading=11,
+            spaceAfter=7,
+        )
+
+        story = [PageBreak()]
+        title_lines = [line.strip() for line in blocks.pop(0).splitlines() if line.strip()]
+        if title_lines:
+            story.append(Paragraph(escape(title_lines[0]), title_style))
+            for line in title_lines[1:]:
+                story.append(Paragraph(escape(line), subtitle_style))
+
+        subtitle = self.letter_settings.license_subtitle.strip()
+        if subtitle:
+            rendered, _ = self.markdown_inline(subtitle, False)
+            story.append(Paragraph(rendered, subtitle_style))
+
+        for block in blocks:
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            joined = " ".join(lines)
+            is_heading = bool(
+                re.fullmatch(r"\d+\.\s+[A-Z][A-Z0-9 ,/\-()]+", joined)
+                or joined.startswith("ADDENDUM:")
+            )
+            if is_heading:
+                story.append(Paragraph(escape(joined), section_style))
+            else:
+                story.append(Paragraph("<br/>".join(escape(line) for line in lines), body_style))
+        return story
+
     def build_story(self, extra_pages: int = 0, toc_page_numbers: list[int] | None = None):
         """Build the visible document while always attaching section outlines."""
         story = []
@@ -533,6 +657,8 @@ class ConfiguredPdfRenderer(PdfRenderer):
         flush_quote()
         for _ in range(extra_pages):
             story.extend([PageBreak(), Spacer(1, 1)])
+        story.extend(self._license_reference_block())
+        story.extend(self._gfdl_appendix())
         return story
 
     def apply_metadata(self, canvas) -> None:
