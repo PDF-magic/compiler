@@ -92,7 +92,7 @@ class QuotationTests(unittest.TestCase):
 
             self.assertEqual(renderer.order, ["main"])
             self.assertEqual(len(flowables), 4)
-            body, note_four, note_seventeen, source = flowables
+            body, source, note_four, note_seventeen = flowables
             self.assertEqual(body.getPlainText(), "First passage.4 Later passage.17")
             self.assertEqual(note_four.getPlainText(), "4. Original fourth note.")
             self.assertEqual(
@@ -103,13 +103,14 @@ class QuotationTests(unittest.TestCase):
             self.assertEqual(body.footnote_refs, [])
             self.assertEqual(source.footnote_refs, [])
             self.assertFalse(body.style.quoteRoundBottom)
+            self.assertFalse(source.style.quoteRoundTop)
+            self.assertFalse(source.style.quoteRoundBottom)
             self.assertFalse(note_four.style.quoteRoundTop)
             self.assertFalse(note_four.style.quoteRoundBottom)
             self.assertFalse(note_seventeen.style.quoteRoundTop)
-            self.assertFalse(note_seventeen.style.quoteRoundBottom)
-            self.assertFalse(source.style.quoteRoundTop)
+            self.assertTrue(note_seventeen.style.quoteRoundBottom)
 
-    def test_source_footnotes_render_inside_quote_before_attribution(self):
+    def test_source_footnotes_render_inside_quote_beneath_attribution(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             renderer = self._renderer(
@@ -133,9 +134,9 @@ class QuotationTests(unittest.TestCase):
                 note_four = page.search_for("4. Original fourth note.")[0]
                 note_seventeen = page.search_for("17. Original seventeenth note.")[0]
                 source = page.search_for("— Ada")[0]
-                self.assertLess(body.y0, note_four.y0)
+                self.assertLess(body.y0, source.y0)
+                self.assertLess(source.y0, note_four.y0)
                 self.assertLess(note_four.y0, note_seventeen.y0)
-                self.assertLess(note_seventeen.y0, source.y0)
 
     def test_source_marker_is_literal_in_an_ordinary_blockquote(self):
         with TemporaryDirectory() as temp:

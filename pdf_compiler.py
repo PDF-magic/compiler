@@ -631,11 +631,31 @@ class PdfRenderer:
                 )
             flowables.append(RefParagraph(body_text, body_style, body_refs))
 
+        if source:
+            rendered_source, source_refs = self.quotation_inline(source, local_notes)
+            source_style = self.styles["QuotationSourceX"]
+            has_preceding = bool(flowables)
+            has_following = bool(local_note_items)
+            if has_preceding or has_following:
+                source_style = ParagraphStyle(
+                    "QuotationSourceJoinedX",
+                    parent=source_style,
+                    quoteRoundTop=not has_preceding,
+                    quoteRoundBottom=not has_following,
+                    quotePaddingTop=0 if has_preceding else 6,
+                    quotePaddingBottom=0 if has_following else 6,
+                    spaceBefore=0,
+                    spaceAfter=0,
+                )
+            flowables.append(
+                RefParagraph(f"— {rendered_source}", source_style, source_refs)
+            )
+
         for index, (key, note_text) in enumerate(local_note_items):
             rendered_note, note_refs = self.quotation_inline(note_text, local_notes)
             note_style = self.styles["QuotationFootnoteX"]
             has_preceding = bool(flowables)
-            has_following = index < len(local_note_items) - 1 or bool(source)
+            has_following = index < len(local_note_items) - 1
             if has_preceding or has_following:
                 note_style = ParagraphStyle(
                     f"QuotationFootnoteJoinedX{index}",
@@ -653,21 +673,6 @@ class PdfRenderer:
                     note_style,
                     note_refs,
                 )
-            )
-
-        if source:
-            rendered_source, source_refs = self.quotation_inline(source, local_notes)
-            source_style = self.styles["QuotationSourceX"]
-            if flowables:
-                source_style = ParagraphStyle(
-                    "QuotationSourceJoinedX",
-                    parent=source_style,
-                    quoteRoundTop=False,
-                    quotePaddingTop=0,
-                    spaceBefore=0,
-                )
-            flowables.append(
-                RefParagraph(f"— {rendered_source}", source_style, source_refs)
             )
 
         if not flowables:

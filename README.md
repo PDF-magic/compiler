@@ -199,6 +199,6 @@ To preserve footnotes from the quoted source, define them inside the quotation. 
 > [!SOURCE] Author, *Work*
 ```
 
-Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. A footnote whose definition is outside the quotation remains an ordinary document footnote.
+Quote-local footnotes render inside the quotation beneath the right-aligned source attribution. A footnote whose definition is outside the quotation remains an ordinary document footnote.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
