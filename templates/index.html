@@ -363,6 +363,10 @@
       <fieldset class="wizard-page" data-step-title="Output metadata">
         <legend>Output metadata</legend>
         <div class="grid">
+          <label class="full">Previous PDF
+            <input type="file" name="previous_pdf" accept=".pdf,application/pdf">
+            <small>Optionally reuse Title, Author, Subject, and Keywords from an earlier PDF. Values entered below override inherited metadata.</small>
+          </label>
           <label class="full">PDF title metadata
             <input name="title" placeholder="Comment Letter">
             <small>Stored only as the PDF Title metadata. If blank, the source filename stem is used.</small>
