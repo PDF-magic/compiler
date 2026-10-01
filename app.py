@@ -46,6 +46,26 @@ def form_float(name: str, default: float) -> float:
     return default if not value else float(value)
 
 
+PDF_METADATA_KEYS = ("title", "author", "subject", "keywords")
+
+
+def submitted_previous_pdf_metadata() -> tuple[dict[str, str], str | None]:
+    upload = request.files.get("previous_pdf")
+    if not upload or not upload.filename:
+        return {}, None
+
+    try:
+        with pymupdf.open(stream=upload.read(), filetype="pdf") as previous_pdf:
+            metadata = previous_pdf.metadata or {}
+    except (pymupdf.FileDataError, RuntimeError, ValueError):
+        return {}, "Previous PDF must be a readable PDF."
+
+    return {
+        key: str(metadata.get(key) or "").strip()
+        for key in PDF_METADATA_KEYS
+    }, None
+
+
 def submitted_markdown() -> tuple[str | None, str | None]:
     source_upload = request.files.get("source")
     markdown = request.form.get("markdown", "")
@@ -108,6 +128,13 @@ def render_pdf():
     markdown, error = submitted_markdown()
     if error:
         return jsonify({"error": error}), 400
+
+    previous_metadata, error = submitted_previous_pdf_metadata()
+    if error:
+        return jsonify({"error": error}), 400
+
+    def metadata_value(name: str) -> str | None:
+        return request.form.get(name, "").strip() or previous_metadata.get(name) or None
 
     preset = request.form.get("letterhead_preset", "").strip()
     if preset and preset not in LETTERHEAD_PRESETS:
@@ -228,10 +255,10 @@ def render_pdf():
             signature=signature,
             wordmark=request.form.get("wordmark", "").strip() or None,
             visible_document_title=request.form.get("document_title", "").strip() or None,
-            title=request.form.get("title", "").strip() or None,
-            author=request.form.get("author", "").strip() or None,
-            subject=request.form.get("subject", "").strip() or None,
-            keywords=request.form.get("keywords", "").strip() or None,
+            title=metadata_value("title"),
+            author=metadata_value("author"),
+            subject=metadata_value("subject"),
+            keywords=metadata_value("keywords"),
             smart_quotes=truthy("smart_quotes"),
             underline_links=truthy("underline_links"),
             hide_url_scheme=truthy("hide_url_scheme"),
