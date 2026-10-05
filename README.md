@@ -152,7 +152,7 @@ The compiler supports:
 - an optional visible table of contents with hierarchical indentation and page numbers
 - Markdown footnotes placed at the bottom of the page where referenced, including continuation pages
 - `{{key}}` interpolation for stable references to final Markdown footnote numbers
-- basic bold, italic, inline code, links, block quotes, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
+- basic bold, italic, inline code, links, block quotes with optional per-block hex colors, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
 - configurable PDF metadata
@@ -174,6 +174,30 @@ The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPO
 ```
 
 The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers are centered in Times small caps, with lowercase letters rendered as reduced capitals. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
+
+### Per-blockquote hex colors
+
+A blockquote can override its configured accent color with a six-digit hex directive. The directive is metadata and is not printed:
+
+```markdown
+> [!COLOR #7C3AED]
+> This blockquote uses #7C3AED.
+```
+
+For sourced quotations and GitHub-flavored admonitions, put the color directive immediately after the block type marker:
+
+```markdown
+> [!QUOTE]
+> [!COLOR #2563EB]
+> The quotation body uses the custom color.
+> [!SOURCE] Example source
+
+> [!WARNING]
+> [!COLOR #B42318]
+> This warning uses the custom color.
+```
+
+Only full six-digit colors such as `#2E732E` are treated as directives. Invalid or abbreviated values remain ordinary quoted text. A per-block color overrides the quote accent and any background that was derived from that accent; an explicitly configured separate blockquote background remains unchanged.
 
 ### Sourced quotation blocks
 
