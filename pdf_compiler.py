@@ -674,13 +674,76 @@ class PdfRenderer:
             flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
         return flowables
 
+    @staticmethod
+    def blockquote_color(text: str) -> str | None:
+        """Return a six-digit hex color from a blockquote color directive."""
+        match = re.fullmatch(
+            r"\[!COLOR\s+(#[0-9a-fA-F]{6})\]\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        return match.group(1).upper() if match else None
+
+    def extract_blockquote_color(
+        self,
+        quote_lines: list[str],
+    ) -> tuple[list[str], str | None]:
+        """Remove an optional leading color directive from one blockquote."""
+        lines = list(quote_lines)
+        if not lines:
+            return lines, None
+
+        marker_index = 1 if (
+            re.fullmatch(r"\[!QUOTE\]\s*", lines[0].strip(), re.IGNORECASE)
+            or self.admonition_kind(lines[0]) is not None
+        ) else 0
+        if marker_index >= len(lines):
+            return lines, None
+
+        color = self.blockquote_color(lines[marker_index])
+        if color is None:
+            return lines, None
+
+        del lines[marker_index]
+        return lines, color
+
+    @staticmethod
+    def apply_blockquote_color(
+        flowables: list[RefParagraph],
+        color: str | None,
+    ) -> list[RefParagraph]:
+        """Override one blockquote's accent and any accent-derived background."""
+        if color is None:
+            return flowables
+
+        accent = colors.HexColor(color)
+        for index, flowable in enumerate(flowables):
+            old_accent = getattr(flowable.style, "quoteAccent", None)
+            old_background = getattr(flowable.style, "quoteBackground", None)
+            overrides = {"quoteAccent": accent}
+            if old_background is None or old_background == old_accent:
+                overrides["quoteBackground"] = accent
+            flowable.style = ParagraphStyle(
+                f"{flowable.style.name}ColorOverride{index}",
+                parent=flowable.style,
+                **overrides,
+            )
+        return flowables
+
     def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
         """Render a normal quote or a GitHub-flavored admonition blockquote."""
         if not quote_lines:
             return []
 
+        quote_lines, color = self.extract_blockquote_color(quote_lines)
+        if not quote_lines:
+            return []
+
         if re.fullmatch(r"\[!QUOTE\]\s*", quote_lines[0].strip(), re.IGNORECASE):
-            return self.quotation_flowables(quote_lines)
+            return self.apply_blockquote_color(
+                self.quotation_flowables(quote_lines),
+                color,
+            )
 
         kind = self.admonition_kind(quote_lines[0])
         if not kind or not self.admonitions_enabled():
@@ -690,7 +753,10 @@ class PdfRenderer:
                 rendered, quote_refs = self.markdown_inline(quote.strip(), True)
                 chunks.append(rendered)
                 refs.extend(quote_refs)
-            return [RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs)]
+            return self.apply_blockquote_color(
+                [RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs)],
+                color,
+            )
 
         body_lines = quote_lines[1:]
         body_chunks = []
@@ -735,7 +801,7 @@ class PdfRenderer:
                 )
             flowables.append(RefParagraph(body_text, body_style, body_refs))
 
-        return flowables
+        return self.apply_blockquote_color(flowables, color)
 
     def note_number(self, key: str) -> int:
         if key not in self.nums:
