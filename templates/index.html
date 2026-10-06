@@ -354,6 +354,14 @@
             <small>Controls visible section labels in headings and, when enabled, the table of contents.</small>
           </label>
           <label class="check"><input type="checkbox" name="include_toc"> Include visible table of contents</label>
+          <label>Footnote placement
+            <select name="footnote_placement">
+              {% for value, label in footnote_placements.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>Endnotes keep global numbering and links. H1 grouping collects notes at the document end under the H1 where each note is first cited.</small>
+          </label>
           <div class="full">
             <small>PDF outline/bookmarks are always generated from Markdown sections, even when the visible TOC is off or visible section numbering is disabled.</small>
           </div>

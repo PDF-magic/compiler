@@ -17,6 +17,7 @@ from configured_renderer import (
     IMAGE_TREATMENTS,
     PAGE_NUMBER_STYLES,
     SECTION_NUMBERING_STYLES,
+    FOOTNOTE_PLACEMENTS,
     LICENSE_PRESETS,
     LetterSettings,
 )
@@ -80,6 +81,7 @@ def index():
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
         section_numbering_styles=SECTION_NUMBERING_STYLES,
+        footnote_placements=FOOTNOTE_PLACEMENTS,
         license_presets=LICENSE_PRESETS,
         admonition_types=ADMONITION_TYPES,
         admonition_default_colors=ADMONITION_DEFAULT_COLORS,
@@ -165,6 +167,7 @@ def render_pdf():
                 page_number_style=request.form.get("page_number_style", "none"),
                 include_toc=truthy("include_toc"),
                 section_numbering=request.form.get("section_numbering", "legal"),
+                footnote_placement=request.form.get("footnote_placement", "page"),
                 license_preset=request.form.get("license_preset", "none"),
                 license_subtitle=request.form.get("license_subtitle", "").strip(),
             )
