@@ -150,7 +150,7 @@ The compiler supports:
 - hierarchical section numbering for nested Markdown headings, including legal and decimal styles
 - PDF outline/bookmark entries for sections regardless of visible TOC settings
 - an optional visible table of contents with hierarchical indentation and page numbers
-- Markdown footnotes placed at the bottom of the page where referenced, including continuation pages
+- configurable Markdown footnote placement: bottom of the referenced page, a single endnote list, or document-end endnotes grouped by the H1 where each note is first cited
 - `{{key}}` interpolation for stable references to final Markdown footnote numbers
 - basic bold, italic, inline code, links, block quotes, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
