@@ -39,8 +39,11 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 - addressee text with an optional bordered letterhead box
 - separate first-page and remaining-page header text, with clickable Markdown links and inline bold/italic formatting
 - footer page-count styles: none, `1`, `Page 1`, `1 of 5`, or `Page 1 of 5`
+- optional subdued `DRAFT | Ref: ... | Commit: ...` footer watermark on every page, including footnote continuations
 - optional legal-style preflight validation; findings do not block PDF rendering
 - optional HTTP(S) URL validation and canonicalization checks
+
+The **Running header & footer** step includes an opt-in draft watermark. Enter a draft reference and a commit SHA to identify the exact source revision in the PDF footer. Alternatively, supply a public GitHub repository (`owner/repository`) and optionally the relative source path; when the SHA field is blank, the compiler resolves the latest commit on the repository's default branch, or the most recent commit affecting that file. The commit is resolved when compiling, not continuously updated after download. GitHub lookup uses its unauthenticated public API; private repositories and rate-limited lookups require a manually pasted SHA. The compiler cannot infer a source commit from a file uploaded through the browser. This footer is disabled by default and is separate from the page-number style.
 
 Section structure is always written into the PDF outline/bookmark metadata. Turning off the visible table of contents only removes the TOC pages, and choosing no visible section numbering only removes numbering from displayed section labels; neither setting removes the PDF section outline.
 

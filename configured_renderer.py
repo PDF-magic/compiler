@@ -16,6 +16,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import (
     HRFlowable,
     Image,
@@ -84,6 +85,9 @@ class LetterSettings:
     first_page_header: str = ""
     remaining_page_header: str = ""
     page_number_style: str = "none"
+    draft_footer: bool = False
+    draft_reference: str = ""
+    latest_commit: str = ""
     include_toc: bool = False
     section_numbering: str = "legal"
     license_preset: str = "none"
@@ -96,6 +100,13 @@ class LetterSettings:
             raise ValueError(f"Unknown image treatment: {self.logo_treatment}")
         if self.page_number_style not in PAGE_NUMBER_STYLES:
             raise ValueError(f"Unknown page-number style: {self.page_number_style}")
+        if self.draft_footer:
+            self.draft_reference = self.draft_reference.strip()
+            self.latest_commit = self.latest_commit.strip()
+            if len(self.draft_reference) > 64 or any(ord(c) < 32 for c in self.draft_reference):
+                raise ValueError("Draft reference must be 64 characters or fewer, on one line.")
+            if not re.fullmatch(r"[0-9a-fA-F]{7,64}", self.latest_commit):
+                raise ValueError("A draft footer needs a Git commit SHA (7–64 hexadecimal characters).")
         if self.section_numbering not in SECTION_NUMBERING_STYLES:
             raise ValueError(f"Unknown section-numbering style: {self.section_numbering}")
         if self.license_preset not in LICENSE_PRESETS:
@@ -771,6 +782,27 @@ class ConfiguredPdfRenderer(PdfRenderer):
         canvas.drawCentredString(self.page_width / 2, 0.14 * inch, label)
         canvas.restoreState()
 
+    def draw_draft_footer(self, canvas) -> None:
+        """Mark each draft page with the supplied source revision, not the compiler revision."""
+        settings = self.letter_settings
+        if not settings.draft_footer:
+            return
+
+        label = "DRAFT"
+        if settings.draft_reference:
+            label += f"  |  Ref: {settings.draft_reference}"
+        label += f"  |  Commit: {settings.latest_commit}"
+        width = self.page_width - self.left - self.right
+        text_width = pdfmetrics.stringWidth(label, "Times-Roman", 7.5)
+        font_size = 7.5 if text_width <= width else 7.5 * width / text_width
+        baseline = (0.36 if settings.page_number_style != "none" else 0.14) * inch
+
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor("#777777"))
+        canvas.setFont("Times-Roman", font_size)
+        canvas.drawCentredString(self.page_width / 2, baseline, label)
+        canvas.restoreState()
+
     def continuation_pages_needed(self, page_refs: dict[int, list[int]], base_pages: int) -> int:
         extra = super().continuation_pages_needed(page_refs, base_pages)
         self._total_pages = base_pages + extra
@@ -797,7 +829,10 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 canvas.setLineWidth(0.45)
                 canvas.line(doc.leftMargin, yline, self.page_width - doc.rightMargin, yline)
                 y = yline - 0.08 * inch
-                bottom_guard = 0.34 * inch if self.letter_settings.page_number_style != "none" else 0.24 * inch
+                if self.letter_settings.draft_footer:
+                    bottom_guard = (0.62 if self.letter_settings.page_number_style != "none" else 0.38) * inch
+                else:
+                    bottom_guard = 0.34 * inch if self.letter_settings.page_number_style != "none" else 0.24 * inch
 
                 for index, paragraph in enumerate(items):
                     available = y - bottom_guard
@@ -823,6 +858,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 canvas.restoreState()
 
             self.draw_page_number(canvas, doc.page)
+            self.draw_draft_footer(canvas)
 
         draw.carry = lambda: carry
         return draw
