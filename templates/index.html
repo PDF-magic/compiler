@@ -476,6 +476,24 @@
             </select>
             <small>Total-page formats include footnote continuation pages.</small>
           </label>
+          <label class="check full"><input type="checkbox" name="draft_footer"> Add DRAFT footer watermark</label>
+          <div class="full"><small>Optional, and off by default. Adds a subtle draft reference and source Git commit to every page, including footnote continuation pages.</small></div>
+          <label>Draft reference
+            <input name="draft_reference" maxlength="64" placeholder="S7-2026-25 — revision 2">
+            <small>Optional identifier displayed after DRAFT.</small>
+          </label>
+          <label>Latest source commit SHA
+            <input name="latest_commit" pattern="[0-9a-fA-F]{7,64}" maxlength="64" placeholder="Paste the commit SHA or look it up below" spellcheck="false">
+            <small>For private repositories, paste the commit. A supplied SHA takes precedence over GitHub lookup.</small>
+          </label>
+          <label>Public GitHub repository
+            <input name="source_repository" placeholder="owner/repository" spellcheck="false">
+            <small>When the SHA is blank, look up the latest commit on the default branch.</small>
+          </label>
+          <label>Source file path (optional)
+            <input name="source_path" placeholder="docs/letter.md" spellcheck="false">
+            <small>If supplied, find the most recent commit affecting this file instead of the repository's latest commit.</small>
+          </label>
         </div>
       </fieldset>
 

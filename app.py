@@ -7,6 +7,10 @@ from io import BytesIO
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+import json
 
 from flask import Flask, jsonify, render_template, request, send_file
 import pymupdf
@@ -70,6 +74,35 @@ def preflight_issues(markdown: str) -> list[dict[str, object]]:
     for issue in validate_urls(markdown):
         issues.append({"category": "url", **issue.as_dict()})
     return issues
+
+
+def latest_public_github_commit(repository: str, source_path: str = "") -> str:
+    """Resolve the public default-branch revision for a repo or a specific file."""
+    if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("GitHub repository must be in owner/repository format.")
+    owner, name = repository.split("/")
+    if name in {".", ".."}:
+        raise ValueError("Invalid GitHub repository name.")
+    if any(part in {".", ".."} for part in source_path.split("/")):
+        raise ValueError("GitHub source path cannot contain . or .. segments.")
+    params = {"per_page": 1}
+    if source_path.strip("/"):
+        params["path"] = source_path.strip("/")
+    url = f"https://api.github.com/repos/{owner}/{name}/commits?{urlencode(params)}"
+    req = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "PDF-Compiler"})
+    try:
+        with urlopen(req, timeout=6) as response:
+            entries = json.load(response)
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
+        raise ValueError(
+            "Could not look up the latest public GitHub commit. Paste its SHA manually, or check the repository and path."
+        ) from exc
+    if not isinstance(entries, list) or not entries or not isinstance(entries[0], dict):
+        raise ValueError("No public commits found for that repository and source path.")
+    sha = entries[0].get("sha", "")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+        raise ValueError("GitHub did not return a valid commit SHA.")
+    return sha
 
 
 @app.get("/")
@@ -150,6 +183,15 @@ def render_pdf():
             link_color = request.form.get("link_color", LINK_COLOR).strip()
             if not re.fullmatch(r"#[0-9a-fA-F]{6}", link_color):
                 raise ValueError("Link color must be a six-digit hex color, such as #2E732E.")
+            draft_footer = truthy("draft_footer")
+            latest_commit = request.form.get("latest_commit", "").strip() if draft_footer else ""
+            if draft_footer and not latest_commit:
+                repository = request.form.get("source_repository", "").strip()
+                if not repository:
+                    raise ValueError("Enter a commit SHA or a public GitHub repository for the draft footer.")
+                latest_commit = latest_public_github_commit(
+                    repository, request.form.get("source_path", "").strip()
+                )
             settings = LetterSettings(
                 show_date=truthy("show_date"),
                 date_format=request.form.get("date_format", "month_day_year"),
@@ -163,6 +205,9 @@ def render_pdf():
                 first_page_header=request.form.get("first_page_header", "").strip(),
                 remaining_page_header=request.form.get("remaining_page_header", "").strip(),
                 page_number_style=request.form.get("page_number_style", "none"),
+                draft_footer=draft_footer,
+                draft_reference=request.form.get("draft_reference", "").strip() if draft_footer else "",
+                latest_commit=latest_commit,
                 include_toc=truthy("include_toc"),
                 section_numbering=request.form.get("section_numbering", "legal"),
                 license_preset=request.form.get("license_preset", "none"),
