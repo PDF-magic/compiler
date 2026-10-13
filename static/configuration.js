@@ -6,13 +6,14 @@
     return new Map(Array.from(form.elements)
       .filter(control => control.name && control.name !== 'markdown'
         && ['INPUT', 'SELECT', 'TEXTAREA'].includes(control.tagName)
-        && !['file', 'hidden', 'submit', 'button'].includes(control.type))
+        && (control.name === 'letterhead_layout' || !['file', 'hidden', 'submit', 'button'].includes(control.type)))
       .map(control => [control.name, control]));
   }
 
   function exportConfiguration(form) {
     const settings = Object.fromEntries(Array.from(settingsControls(form), ([name, control]) =>
       [name, control.type === 'checkbox' ? control.checked : control.value]));
+    if (form.letterheadLayout) settings.letterhead_layout = form.letterheadLayout.serialize();
     return { format: FORMAT, version: VERSION, settings };
   }
 
@@ -27,6 +28,11 @@
     for (const [name, value] of entries) {
       const control = controls.get(name);
       if (!control) throw new Error(`Unknown setting: ${name}.`);
+      if (name === 'letterhead_layout') {
+        if (!form.letterheadLayout) throw new Error('Letterhead editor is unavailable.');
+        form.letterheadLayout.validate(value);
+        continue;
+      }
       if (control.type === 'checkbox') {
         if (typeof value !== 'boolean') throw new Error(`Invalid checkbox setting: ${name}.`);
         continue;
@@ -58,10 +64,16 @@
       else control.value = value;
     }
     for (const [name] of entries) {
-      if (name === 'render_style') continue;
+      if (['render_style', 'letterhead_layout', 'letterhead_layout_enabled'].includes(name)) continue;
       const control = controls.get(name);
       control.dispatchEvent(new Event('input', { bubbles: true }));
       control.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (Object.hasOwn(config.settings, 'letterhead_layout')) {
+      form.letterheadLayout.restore(config.settings.letterhead_layout,
+        controls.get('letterhead_layout_enabled')?.checked || false);
+    } else if (Object.hasOwn(config.settings, 'letterhead_layout_enabled')) {
+      controls.get('letterhead_layout_enabled').dispatchEvent(new Event('change', { bubbles: true }));
     }
   }
 

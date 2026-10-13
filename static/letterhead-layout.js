@@ -1,10 +1,51 @@
+function validateLetterheadConfiguration(raw) {
+  if (typeof raw !== 'string' || raw.length > 12000) throw new Error('Invalid letterhead layout.');
+  const payload = JSON.parse(raw);
+  if (!payload || Array.isArray(payload) || Object.keys(payload).join(',') !== 'fields'
+      || !Array.isArray(payload.fields) || payload.fields.length > 20) {
+    throw new Error('Invalid letterhead layout fields.');
+  }
+  const seen = new Set();
+  let customs = 0;
+  const kinds = ['first_page_header', 'logo', 'document_title', 'quote_number', 'date', 'submission_subtitle', 'addressee', 'custom'];
+  for (const field of payload.fields) {
+    if (!field || !kinds.includes(field.kind)) throw new Error('Unknown letterhead field.');
+    const properties = ['kind', 'x', 'y', 'width', 'align', 'visible'];
+    if (field.kind === 'custom') properties.push('id', 'label', 'text');
+    if (Object.keys(field).length !== properties.length || properties.some(name => !(name in field))) {
+      throw new Error('Invalid letterhead field properties.');
+    }
+    if (field.kind === 'custom') {
+      if (++customs > 12 || !/^custom-[0-9]{1,5}$/.test(field.id)
+          || typeof field.label !== 'string' || field.label.length > 80
+          || typeof field.text !== 'string' || field.text.length > 500
+          || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(field.label + field.text)) {
+        throw new Error('Invalid custom letterhead field.');
+      }
+    }
+    const id = field.id || field.kind;
+    if (seen.has(id)) throw new Error('Duplicate letterhead field.');
+    seen.add(id);
+    if (![field.x, field.y, field.width].every(n => typeof n === 'number' && Number.isFinite(n))
+        || field.x < 0 || field.y < 0 || field.y > 100 || field.width < 16
+        || field.width > 100 || field.x + field.width > 100.001
+        || !['left', 'center', 'right'].includes(field.align) || typeof field.visible !== 'boolean') {
+      throw new Error('Invalid letterhead position, alignment, or visibility.');
+    }
+  }
+  return payload.fields;
+}
+if (typeof module !== 'undefined' && module.exports) module.exports = { validateLetterheadConfiguration };
+
 (() => {
+  if (typeof document === 'undefined') return;
   const form = document.getElementById('compiler-form');
   const byId = id => document.getElementById('letterhead-' + id);
   const enabled = byId('layout-enabled'), editor = byId('editor');
   const hidden = byId('layout-json'), stage = byId('stage');
   const selector = byId('selected'), visible = byId('visible');
   const align = byId('align'), width = byId('width');
+  const xInput = byId('x'), yInput = byId('y');
   const extra = byId('custom-controls'), label = byId('custom-label');
   const valueInput = byId('custom-text');
   if (!form || !enabled || !stage) return;
@@ -52,6 +93,9 @@
       field.kind === 'custom' ? field.label || idOf(field) : names[field.kind], idOf(field))));
     selector.value = selected;
     const field = active();
+    for (const control of [visible, align, width, xInput, yInput]) control.disabled = !field;
+    if (!field) {extra.hidden = true; return;}
+    xInput.value = field.x; yInput.value = field.y;
     visible.checked = field.visible;
     align.value = field.align;
     width.value = field.width;
@@ -68,6 +112,9 @@
       tile.classList.toggle('is-selected', tile.dataset.field === selected));
   }
   function draw() {
+    const left = Number(input('left_margin')?.value || 0.78);
+    const right = Number(input('right_margin')?.value || 0.78);
+    stage.style.aspectRatio = `${8.5 - left - right} / 3`;
     stage.replaceChildren();
     fields.filter(field => field.visible).forEach(field => {
       const tile = document.createElement('button');
@@ -105,7 +152,7 @@
           event.key === 'ArrowRight' ? step : 0), 0, 100 - field.width);
         field.y = clamp(field.y + (event.key === 'ArrowUp' ? -step :
           event.key === 'ArrowDown' ? step : 0), 0, 100);
-        position(); commit();
+        position(); xInput.value = field.x; yInput.value = field.y; commit();
       });
       let offset = null;
       tile.addEventListener('pointerdown', event => {
@@ -123,7 +170,7 @@
           0, 100 - field.width) * 10) / 10;
         field.y = Math.round(clamp(100 * (event.clientY - bounds.top - offset.y) / bounds.height,
           0, 100) * 10) / 10;
-        position();
+        position(); xInput.value = field.x; yInput.value = field.y;
       });
       const stop = () => {if (offset) {offset = null; commit();}};
       tile.addEventListener('pointerup', stop);
@@ -137,6 +184,16 @@
     commit();
   });
   selector.addEventListener('change', () => choose(selector.value));
+  const positionInput = () => {
+    const field = active();
+    if (!field) return;
+    field.x = clamp(Number(xInput.value) || 0, 0, 100 - field.width);
+    field.y = clamp(Number(yInput.value) || 0, 0, 100);
+    xInput.value = field.x; yInput.value = field.y;
+    draw(); commit();
+  };
+  xInput.addEventListener('input', positionInput);
+  yInput.addEventListener('input', positionInput);
   visible.addEventListener('change', () => {active().visible = visible.checked; draw(); commit();});
   align.addEventListener('change', () => {active().align = align.value; draw(); commit();});
   width.addEventListener('input', () => {
@@ -160,7 +217,7 @@
   byId('remove-field').addEventListener('click', () => {
     if (active().kind !== 'custom') return;
     fields = fields.filter(field => idOf(field) !== selected);
-    choose('first_page_header'); commit();
+    choose(fields[0] ? idOf(fields[0]) : ''); commit();
   });
   byId('reset').addEventListener('click', () => {
     fields = defaults(); choose('first_page_header'); commit();
@@ -171,5 +228,18 @@
   };
   form.addEventListener('input', live);
   form.addEventListener('change', live);
+  form.letterheadLayout = {
+    serialize: () => JSON.stringify({fields}),
+    validate: validateLetterheadConfiguration,
+    restore(raw, isEnabled) {
+      fields = validateLetterheadConfiguration(raw);
+      nextId = Math.max(0, ...fields.filter(field => field.kind === 'custom')
+        .map(field => Number(field.id.slice(7))));
+      selected = fields[0] ? idOf(fields[0]) : '';
+      enabled.checked = isEnabled;
+      editor.hidden = !isEnabled;
+      inspector(); draw(); commit();
+    },
+  };
   inspector(); draw();
 })();
