@@ -199,6 +199,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { validate
   width.addEventListener('input', () => {
     const field = active(); field.width = Number(width.value);
     field.x = Math.min(field.x, 100 - field.width);
+    xInput.value = field.x;
     byId('width-value').textContent = field.width + '%';
     draw(); commit();
   });

@@ -297,7 +297,8 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
         elif typography.full_page_without_notes or self.letter_settings.footnote_placement != "page":
             self.bottom = typography.no_notes_bottom_margin * inch
         self.max_foot_height = self.foot_top + 0.22 * inch - self.footnote_bottom_guard()
-        if self.max_foot_height < typography.footnote_font_size * typography.footnote_line_spacing + self.footnote_gap():
+        if (self.order and self.letter_settings.footnote_placement == "page"
+                and self.max_foot_height < typography.footnote_font_size * typography.footnote_line_spacing + self.footnote_gap()):
             raise ValueError("Footnote area must have enough room above its bottom margin for a line of text.")
 
     def footnote_gap(self) -> float:

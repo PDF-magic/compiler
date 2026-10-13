@@ -233,9 +233,9 @@ The rendering engine, presentation settings, and validation layer are kept separ
 
 ## Professional filing style
 
-Select **Professional filing** on the Typography page for a restrained presentation inspired by [the reference SEC comment letter](https://www.sec.gov/comments/sr-occ-2025-801/srocc2025801-598095-1737722.pdf). It uses one-inch side margins, 12 pt Times body text with 1.5 line spacing, justified paragraphs with first-line indents, compact headings, 10.5 pt footnotes, plain inset quotations, and page numbers positioned inside the bottom margin. Letters without footnotes use the full printable page instead of reserving a note area.
+Select **Professional filing** in the Typography preset selector for a restrained presentation inspired by [the reference SEC comment letter](https://www.sec.gov/comments/sr-occ-2025-801/srocc2025801-598095-1737722.pdf). It uses one-inch side margins, 12 pt Times body text with 1.5 line spacing, justified paragraphs with first-line indents, compact headings, 10.5 pt footnotes, plain inset quotations, and page numbers positioned inside the bottom margin. Letters without footnotes use the full printable page instead of reserving a note area.
 
-Choosing a style resets the typography and quotation appearance controls to its defaults; you can adjust those controls afterward. Letterhead, metadata, numbering, footnote placement, and other content settings remain independently configurable. **Classic** preserves the current presentation.
+Choosing a preset fills the existing typography and quotation controls and the additional page, paragraph, heading, and footnote controls. It adds no hidden rendering rules: margins, alignment, indents, spacing, heading behavior, quotation decoration, footnote reserve and alignment, and footer position all remain individually editable. Expand the grouped settings on the Typography page to adjust numeric values. **Classic** restores the default values. Letterhead, metadata, numbering, and footnote placement remain independently configurable.
 
 The same option is available on the command line:
 
@@ -247,6 +247,14 @@ The professional CLI style includes `Page 1 of N` footers. In Python, pass `Typo
 
 ## Export and import configurations
 
-Use **Export config** at the top of the configurator to download `pdf-compiler-config.json`. Use **Import config** to restore that file, including the selected render style, custom typography, section and footnote settings, metadata, letterhead text and preset, headers, footer options, colors, and licensing settings. Custom values are restored after the render-style preset is applied.
+Use **Export config** at the top of the configurator to download `pdf-compiler-config.json`. Use **Import config** to restore that file, including the selected render style, custom typography, section and footnote settings, metadata, letterhead text and preset, headers, footer options, colors, and licensing settings. Custom values are restored after the typography preset is applied. Configurations also preserve first-page field positions, widths, alignments, visibility, custom labeled fields, and whether the layout editor is enabled.
 
 Configurations contain settings only. Markdown text and uploaded Markdown, logos, signatures, and previous PDFs are excluded; importing preserves the document and uploads already in the form. Keep custom assets alongside your configuration when moving it to another browser or computer. Invalid or unsupported configuration files are rejected before changing any settings.
+
+## First-page letterhead editor
+
+Enable **Customize positions on the first page** in Letterhead to arrange the existing header, logo or wordmark, title, reference, date, submission subtitle, and addressee. Select a field to change its visibility, alignment, width, and horizontal or vertical position; you can also drag it or use arrow keys (Shift for larger movements). Add up to 12 custom labeled text fields. Existing text inputs remain the source of field content.
+
+The editor uses the current page margins and reserves room above the body for visible fields. A positioned addressee appears once. Disabling the editor restores the fixed letterhead layout, while configuration export preserves your custom arrangement for later reuse. This integrates the editor from:
+
+https://github.com/PDF-magic/compiler/pull/37

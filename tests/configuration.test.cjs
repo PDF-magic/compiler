@@ -61,3 +61,38 @@ for (const config of [null, {}, {format:'pdf-compiler-config',version:2,settings
   assert.throws(() => importConfiguration(fixture().form, config));
 }
 console.log('Configuration round-trip, preset overrides, validation, and document preservation passed.');
+
+// The PR #37 editor stores its layout separately from ordinary visible controls.
+{
+  const { validateLetterheadConfiguration } = require('../static/letterhead-layout.js');
+  const fields = fixture();
+  const layout = control('letterhead_layout', '', 'hidden');
+  const enabled = control('letterhead_layout_enabled', '1', 'checkbox');
+  fields.form.elements.push(layout, enabled);
+  let serialized = JSON.stringify({fields:[{
+    kind:'custom', id:'custom-7', label:'Tracking', text:'REF-123',
+    x:20, y:30, width:40, align:'right', visible:true,
+  }]});
+  fields.form.letterheadLayout = {
+    serialize: () => serialized,
+    validate: validateLetterheadConfiguration,
+    restore(raw, state) {
+      validateLetterheadConfiguration(raw);
+      serialized=raw; layout.value=state?raw:''; enabled.checked=state;
+    },
+  };
+  const saved=exportConfiguration(fields.form);
+  serialized=JSON.stringify({fields:[]});
+  importConfiguration(fields.form,saved);
+  assert.deepEqual(exportConfiguration(fields.form),saved);
+  enabled.checked=false;
+  const disabled=exportConfiguration(fields.form);
+  serialized=JSON.stringify({fields:[]});
+  importConfiguration(fields.form,disabled);
+  assert.deepEqual(exportConfiguration(fields.form),disabled);
+  assert.equal(layout.value,'');
+  const bad=JSON.parse(JSON.stringify(saved));
+  bad.settings.letterhead_layout=JSON.stringify({fields:[{kind:'unexpected'}]});
+  assert.throws(()=>importConfiguration(fields.form,bad));
+  assert.deepEqual(exportConfiguration(fields.form),disabled);
+}
