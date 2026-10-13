@@ -58,6 +58,12 @@ SECTION_NUMBERING_STYLES = {
     "none": "No visible section numbers",
 }
 
+FOOTNOTE_PLACEMENTS = {
+    "page": "Bottom of referenced page",
+    "end_document": "End of document",
+    "end_h1": "End of document, grouped by H1",
+}
+
 LICENSE_PRESETS = {
     "none": "No preset",
     "cc_by_sa_4_0": "CC BY-SA 4.0",
@@ -86,6 +92,7 @@ class LetterSettings:
     page_number_style: str = "none"
     include_toc: bool = False
     section_numbering: str = "legal"
+    footnote_placement: str = "page"
     license_preset: str = "none"
     license_subtitle: str = ""
 
@@ -98,6 +105,8 @@ class LetterSettings:
             raise ValueError(f"Unknown page-number style: {self.page_number_style}")
         if self.section_numbering not in SECTION_NUMBERING_STYLES:
             raise ValueError(f"Unknown section-numbering style: {self.section_numbering}")
+        if self.footnote_placement not in FOOTNOTE_PLACEMENTS:
+            raise ValueError(f"Unknown footnote placement: {self.footnote_placement}")
         if self.license_preset not in LICENSE_PRESETS:
             raise ValueError(f"Unknown license preset: {self.license_preset}")
         if self.date_value:
@@ -198,6 +207,10 @@ class ConfiguredPdfRenderer(PdfRenderer):
         self.keywords = keywords or ""
         self._total_pages = 0
         super().__init__(source, output, **kwargs)
+        if self.letter_settings.footnote_placement != "page":
+            # Endnotes live in the document flow, so they do not need the large
+            # bottom reserve used by page footnotes.
+            self.bottom = 0.78 * inch
         if self.letter_settings.first_page_header or self.letter_settings.remaining_page_header:
             self.top = max(self.top, 1.10 * inch)
 
@@ -403,6 +416,102 @@ class ConfiguredPdfRenderer(PdfRenderer):
             Paragraph(f'<link href="{target}">{rendered_label}</link>', label_style),
             Paragraph(f'<link href="{target}">{page}</link>', page_style),
         ]
+
+    def _endnote_groups(self) -> list[tuple[str | None, list[int]]]:
+        """Return endnote numbers in one list or grouped by the H1 of first citation."""
+        placement = self.letter_settings.footnote_placement
+        if placement == "page" or not self.order:
+            return []
+        if placement == "end_document":
+            return [(None, list(range(1, len(self.order) + 1)))]
+
+        groups: list[tuple[str | None, list[int]]] = []
+        current_title: str | None = None
+        current_numbers: list[int] | None = None
+        seen: set[int] = set()
+        in_fence = False
+        fence_marker: str | None = None
+
+        def active_group() -> list[int]:
+            nonlocal current_numbers
+            if current_numbers is None:
+                current_numbers = []
+                groups.append((current_title, current_numbers))
+            return current_numbers
+
+        for raw_line in self.body_text.splitlines():
+            stripped = raw_line.lstrip()
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                marker = stripped[:3]
+                if not in_fence:
+                    in_fence = True
+                    fence_marker = marker
+                elif marker == fence_marker:
+                    in_fence = False
+                    fence_marker = None
+                continue
+            if in_fence:
+                continue
+
+            heading = re.match(r"^#\s+(.*)$", raw_line.rstrip())
+            if heading:
+                current_title = self.clean_heading(heading.group(1))
+                current_numbers = None
+
+            for match in self.note_ref_re.finditer(raw_line):
+                number = self.nums.get(match.group(1))
+                if number is None or number in seen:
+                    continue
+                active_group().append(number)
+                seen.add(number)
+
+        missing = [number for number in range(1, len(self.order) + 1) if number not in seen]
+        if missing:
+            active_group().extend(missing)
+        return [(title, numbers) for title, numbers in groups if numbers]
+
+    def _endnote_block(self):
+        """Render ordinary Markdown footnotes in the document flow when requested."""
+        groups = self._endnote_groups()
+        if not groups:
+            return []
+
+        title_style = ParagraphStyle(
+            "EndnotesTitleX",
+            parent=self.styles["H1X"],
+            spaceBefore=0,
+            spaceAfter=10,
+        )
+        group_style = ParagraphStyle(
+            "EndnotesGroupX",
+            parent=self.styles["H2X"],
+            spaceBefore=10,
+            spaceAfter=5,
+        )
+        story = [PageBreak(), Paragraph("Notes", title_style)]
+        grouped = self.letter_settings.footnote_placement == "end_h1"
+
+        for group_index, (title, numbers) in enumerate(groups):
+            if grouped and (title or len(groups) > 1):
+                label = title or "Document"
+                rendered_label, _ = self.markdown_inline(label, False)
+                if group_index:
+                    story.append(Spacer(1, 4))
+                story.append(Paragraph(rendered_label, group_style))
+
+            for number in numbers:
+                key = self.order[number - 1]
+                text, _ = self.markdown_inline(
+                    self.note_defs.get(key, f"Missing footnote definition for {key}."),
+                    False,
+                )
+                story.append(
+                    Paragraph(
+                        f'<a name="{self.note_destination(number)}"/>{number}. {text}',
+                        self.styles["FootX"],
+                    )
+                )
+        return story
 
     def _license_reference_block(self):
         """Return the compact end-of-document licensing reference, when requested."""
@@ -657,6 +766,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
         flush_quote()
         for _ in range(extra_pages):
             story.extend([PageBreak(), Spacer(1, 1)])
+        story.extend(self._endnote_block())
         story.extend(self._license_reference_block())
         story.extend(self._gfdl_appendix())
         return story
@@ -772,6 +882,9 @@ class ConfiguredPdfRenderer(PdfRenderer):
         canvas.restoreState()
 
     def continuation_pages_needed(self, page_refs: dict[int, list[int]], base_pages: int) -> int:
+        if self.letter_settings.footnote_placement != "page":
+            self._total_pages = base_pages
+            return 0
         extra = super().continuation_pages_needed(page_refs, base_pages)
         self._total_pages = base_pages + extra
         return extra
@@ -787,7 +900,11 @@ class ConfiguredPdfRenderer(PdfRenderer):
             else:
                 self.draw_remaining_header(canvas, doc)
 
-            refs = page_refs.get(doc.page, [])
+            refs = (
+                page_refs.get(doc.page, [])
+                if self.letter_settings.footnote_placement == "page"
+                else []
+            )
             items = carry + [self.footnote_paragraph(number) for number in refs]
             carry = []
             if items:
