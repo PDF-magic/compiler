@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import pymupdf
+from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
 
 from pdf_compiler import PdfRenderer
@@ -169,6 +170,65 @@ class QuotationTests(unittest.TestCase):
             self.assertEqual(source_style.fontSize, 12.6)
             self.assertEqual(source_style.quoteCornerRadius, 7)
             self.assertEqual(source_style.quoteAccent.hexval(), "0x123456")
+
+    def test_blockquote_color_directive_overrides_accent_and_is_hidden(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                "> [!COLOR #A1B2C3]\n> Colored quote.",
+            )
+            flowables = renderer.blockquote_flowables(
+                ["[!COLOR #A1B2C3]", "Colored quote."]
+            )
+
+            self.assertEqual(len(flowables), 1)
+            self.assertEqual(flowables[0].getPlainText(), "Colored quote.")
+            self.assertEqual(flowables[0].style.quoteAccent, colors.HexColor("#A1B2C3"))
+            self.assertEqual(flowables[0].style.quoteBackground, colors.HexColor("#A1B2C3"))
+
+    def test_sourced_quotation_color_applies_to_body_and_source(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                (
+                    "> [!QUOTE]\n"
+                    "> [!COLOR #123456]\n"
+                    "> Stay curious.\n"
+                    "> [!SOURCE] Ada Lovelace"
+                ),
+            )
+            flowables = renderer.blockquote_flowables(
+                [
+                    "[!QUOTE]",
+                    "[!COLOR #123456]",
+                    "Stay curious.",
+                    "[!SOURCE] Ada Lovelace",
+                ]
+            )
+
+            self.assertEqual(len(flowables), 2)
+            self.assertTrue(
+                all(
+                    item.style.quoteAccent == colors.HexColor("#123456")
+                    for item in flowables
+                )
+            )
+            self.assertNotIn("[!COLOR", "\n".join(item.getPlainText() for item in flowables))
+
+    def test_invalid_blockquote_color_directive_remains_literal(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                "> [!COLOR #ABC]\n> Still ordinary.",
+            )
+            flowables = renderer.blockquote_flowables(
+                ["[!COLOR #ABC]", "Still ordinary."]
+            )
+
+            self.assertIn("[!COLOR #ABC]", flowables[0].getPlainText())
 
     def test_web_renderer_supports_sourced_quotations(self):
         from app import app
