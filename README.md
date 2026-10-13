@@ -230,3 +230,17 @@ To preserve footnotes from the quoted source, define them inside the quotation. 
 Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. A footnote whose definition is outside the quotation remains an ordinary document footnote.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
+
+## Professional filing style
+
+Select **Professional filing** on the Typography page for a restrained presentation inspired by [the reference SEC comment letter](https://www.sec.gov/comments/sr-occ-2025-801/srocc2025801-598095-1737722.pdf). It uses one-inch side margins, 12 pt Times body text with 1.5 line spacing, justified paragraphs with first-line indents, compact headings, 10.5 pt footnotes, plain inset quotations, and page numbers positioned inside the bottom margin. Letters without footnotes use the full printable page instead of reserving a note area.
+
+Choosing a style resets the typography and quotation appearance controls to its defaults; you can adjust those controls afterward. Letterhead, metadata, numbering, footnote placement, and other content settings remain independently configurable. **Classic** preserves the current presentation.
+
+The same option is available on the command line:
+
+```bash
+python pdf_compiler.py comment.md --render-style professional --output comment.pdf
+```
+
+The professional CLI style includes `Page 1 of N` footers. In Python, pass `TypographySettings.for_style("professional", body_font_size=12.5)` to `FirstPagePdfRenderer` to select the preset with optional overrides.

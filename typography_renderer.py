@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import re
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_JUSTIFY
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import PageBreak, Spacer, Table, TableStyle
@@ -15,10 +16,33 @@ from configured_renderer import ConfiguredPdfRenderer, format_header_date, forma
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES
 
 
+RENDER_STYLES = {
+    "classic": "Classic (current style)",
+    "professional": "Professional filing",
+}
+
+PROFESSIONAL_TYPOGRAPHY = {
+    "body_font_size": 12.0,
+    "line_spacing": 1.5,
+    "h1_font_size": 14.0,
+    "h2_font_size": 12.5,
+    "h3_font_size": 12.0,
+    "h4_font_size": 12.0,
+    "footnote_font_size": 10.5,
+    "date_font_size": 12.0,
+    "subtitle_font_size": 11.0,
+    "header_font_size": 10.5,
+    "page_number_font_size": 10.5,
+    "blockquote_corner_radius": 0.0,
+    "blockquote_background_opacity": 0.0,
+}
+
+
 @dataclass(slots=True)
 class TypographySettings:
     """Times-family font sizing and body line-spacing controls."""
 
+    render_style: str = "classic"
     body_font_size: float = 12.0
     line_spacing: float = 1.3
     h1_font_size: float = 16.5
@@ -51,6 +75,8 @@ class TypographySettings:
     )
 
     def __post_init__(self) -> None:
+        if self.render_style not in RENDER_STYLES:
+            raise ValueError(f"Unknown render style: {self.render_style}")
         font_sizes = {
             "body font size": self.body_font_size,
             "section heading font size": self.h1_font_size,
@@ -109,6 +135,13 @@ class TypographySettings:
                     f"{kind.title()} admonition indent must be between 0 and 144 pt."
                 )
 
+    @classmethod
+    def for_style(cls, style: str, **overrides) -> TypographySettings:
+        """Apply preset defaults before explicit typography overrides."""
+        values = dict(PROFESSIONAL_TYPOGRAPHY) if style == "professional" else {}
+        values.update(overrides)
+        return cls(render_style=style, **values)
+
 
 def _contrast_text_color(background, opacity: float):
     """Choose black or white text against a quote background blended onto white."""
@@ -137,6 +170,41 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
     def __init__(self, *args, typography: TypographySettings | None = None, **kwargs):
         self.typography = typography or TypographySettings()
         super().__init__(*args, **kwargs)
+        if self.typography.render_style == "professional":
+            self.left = self.right = inch
+            self.max_foot_width = self.page_width - self.left - self.right
+            if self.order and self.letter_settings.footnote_placement == "page":
+                # Small sets of notes need a smaller reserve than a dense legal brief.
+                note_height = sum(
+                    self.footnote_paragraph(number).wrap(self.max_foot_width, self.page_height)[1]
+                    + 0.02 * inch
+                    for number in range(1, len(self.order) + 1)
+                )
+                self.foot_top = min(
+                    self.foot_top,
+                    note_height + self.footnote_bottom_guard() - 0.22 * inch + 8,
+                )
+                self.bottom = self.foot_top + 0.30 * inch
+            # Use the same available note height for planning and final drawing.
+            self.max_foot_height = self.foot_top + 0.22 * inch - self.footnote_bottom_guard()
+            if not self.order:
+                self.bottom = 0.78 * inch
+
+    def footnote_bottom_guard(self) -> float:
+        guard = super().footnote_bottom_guard()
+        if self.typography.render_style == "professional":
+            return max(guard, 0.65 * inch)
+        return guard
+
+    def footnote_rule_y(self, items) -> float:
+        maximum = super().footnote_rule_y(items)
+        if self.typography.render_style != "professional":
+            return maximum
+        height = sum(
+            item.wrap(self.max_foot_width, self.page_height)[1] + 0.02 * inch
+            for item in items
+        )
+        return min(maximum, self.footnote_bottom_guard() + height + 0.08 * inch)
 
     @staticmethod
     def _scaled_leading(size: float, default_size: float, default_leading: float) -> float:
@@ -226,6 +294,27 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
                 style.textColor = _contrast_text_color(
                     background, typography.blockquote_background_opacity
                 )
+        if typography.render_style == "professional":
+            styles["BodyX"].alignment = TA_JUSTIFY
+            styles["BodyX"].firstLineIndent = 0.30 * inch
+            styles["BodyX"].spaceAfter = 8
+            for name in ("H1X", "H2X", "H3X", "H4X"):
+                styles[name].spaceBefore = 12
+                styles[name].spaceAfter = 6
+                styles[name].keepWithNext = True
+            styles["H4X"].fontName = "Times-Italic"
+            styles["FootX"].leading = typography.footnote_font_size * 1.2
+            styles["FootX"].spaceAfter = 4
+            for name in ("QuoteX", "QuotationBodyX", "QuotationSourceX", "QuotationFootnoteX"):
+                styles[name].quotePlain = (
+                    typography.blockquote_background_opacity == 0
+                    and not typography.blockquote_border
+                )
+                styles[name].firstLineIndent = 0
+                styles[name].leftIndent = 0.5 * inch
+                styles[name].rightIndent = 0.5 * inch
+                styles[name].spaceBefore = 8
+                styles[name].spaceAfter = 8
         return styles
 
     def admonitions_enabled(self) -> bool:
@@ -272,6 +361,7 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
             fontSize=typography.toc_entry_font_size,
             leading=self._scaled_leading(typography.toc_entry_font_size, 9.5, 12.0),
             alignment=2,
+            firstLineIndent=0,
         )
         rows = []
         for index, (level, label) in enumerate(entries):
@@ -281,6 +371,7 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
                 fontSize=typography.toc_entry_font_size,
                 leading=self._scaled_leading(typography.toc_entry_font_size, 9.5, 12.0),
                 leftIndent=max(0, level - 2) * 12,
+                firstLineIndent=0,
                 spaceAfter=0,
             )
             rendered_label, _ = self.markdown_inline(label, False)
@@ -390,5 +481,6 @@ class TypographyPdfRenderer(ConfiguredPdfRenderer):
         canvas.saveState()
         canvas.setFillColor(colors.HexColor("#4B5563"))
         canvas.setFont("Times-Roman", self.typography.page_number_font_size)
-        canvas.drawCentredString(self.page_width / 2, 0.14 * inch, label)
+        baseline = 0.45 if self.typography.render_style == "professional" else 0.14
+        canvas.drawCentredString(self.page_width / 2, baseline * inch, label)
         canvas.restoreState()

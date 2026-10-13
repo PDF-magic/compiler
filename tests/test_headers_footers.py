@@ -39,7 +39,7 @@ class HeaderFooterSettingsTests(unittest.TestCase):
             "page_number_style": "page_number_of_total",
             "show_date": "on",
         })
-        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:400])
+        self.assertEqual(response.status_code, 200, response.data[:400])
         with pymupdf.open(stream=response.data, filetype="pdf") as document:
             self.assertGreater(len(document), 1)
             for index, page in enumerate(document):
@@ -75,7 +75,7 @@ class HeaderFooterSettingsTests(unittest.TestCase):
                 "source_repository": "PDF-magic/compiler",
                 "source_path": "docs/letter.md",
             })
-        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:400])
+        self.assertEqual(response.status_code, 200, response.data[:400])
         self.assertIn("path=docs%2Fletter.md", mocked_open.call_args.args[0].full_url)
         with pymupdf.open(stream=response.data, filetype="pdf") as document:
             self.assertIn(sha, document[0].get_text())

@@ -295,6 +295,14 @@
     <fieldset class="wizard-page" data-step-title="Typography">
       <legend>Typography</legend>
       <div class="grid">
+        <label class="full">Render style
+          <select id="render-style" name="render_style">
+            {% for value, label in render_styles.items() %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <small>Professional filing uses restrained Times headings, indented justified paragraphs, larger footnotes, and plain inset quotations. Selecting a style resets typography and quotation appearance; you can then customize them below.</small>
+        </label>
         <div class="full"><small>Rendered PDFs continue to use the Times family. Font sizes are in points; body line spacing is a multiplier of the body font size.</small></div>
         <label>Body text size
           <input type="number" name="body_font_size" value="12" min="6" max="36" step="0.1">
