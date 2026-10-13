@@ -246,9 +246,14 @@
       <p class="intro">Configure one section at a time, then validate or render your PDF.</p>
     </div>
     <div class="action-group">
+      <button id="export-config" class="secondary" type="button">Export config</button>
+      <button id="import-config" class="secondary" type="button">Import config</button>
+      <input id="config-file" type="file" accept=".json,application/json" hidden>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle color theme"></button>
     </div>
   </div>
+  <p class="intro">Configurations save compiler settings; Markdown and uploaded files are kept separately.</p>
+  <p id="config-status" class="intro" role="status" aria-live="polite"></p>
 
   <form id="compiler-form" action="/render" method="post" enctype="multipart/form-data" target="_blank">
     <div class="wizard">

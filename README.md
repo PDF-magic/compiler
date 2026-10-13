@@ -244,3 +244,9 @@ python pdf_compiler.py comment.md --render-style professional --output comment.p
 ```
 
 The professional CLI style includes `Page 1 of N` footers. In Python, pass `TypographySettings.for_style("professional", body_font_size=12.5)` to `FirstPagePdfRenderer` to select the preset with optional overrides.
+
+## Export and import configurations
+
+Use **Export config** at the top of the configurator to download `pdf-compiler-config.json`. Use **Import config** to restore that file, including the selected render style, custom typography, section and footnote settings, metadata, letterhead text and preset, headers, footer options, colors, and licensing settings. Custom values are restored after the render-style preset is applied.
+
+Configurations contain settings only. Markdown text and uploaded Markdown, logos, signatures, and previous PDFs are excluded; importing preserves the document and uploads already in the form. Keep custom assets alongside your configuration when moving it to another browser or computer. Invalid or unsupported configuration files are rejected before changing any settings.

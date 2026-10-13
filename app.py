@@ -145,7 +145,8 @@ def index():
         "</body>",
         '  <script src="/static/letterhead-presets.js"></script>\n'
         '  <script src="/static/plain-link-options.js"></script>\n'
-        '  <script src="/static/render-styles.js"></script>\n</body>',
+        '  <script src="/static/render-styles.js"></script>\n'
+        '  <script src="/static/configuration.js"></script>\n</body>',
         1,
     )
 
