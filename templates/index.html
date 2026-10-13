@@ -236,6 +236,21 @@
       .wizard-actions { padding: 11px 14px; }
       .bug-report { right: 10px; bottom: 10px; }
     }
+
+    .letterhead-layout-settings { display: grid; gap: 10px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .letterhead-editor { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(190px, 1fr); gap: 14px; align-items: start; }
+    .letterhead-editor[hidden], #letterhead-custom-controls[hidden] { display: none; }
+    .letterhead-stage-column { min-width: 0; display: grid; gap: 8px; }
+    .letterhead-stage { position: relative; width: 100%; aspect-ratio: 6.94 / 3; min-height: 185px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; box-shadow: inset 0 0 0 8px #f4f6fa; }
+    .letterhead-tile { position: absolute; min-width: 0; padding: 3px 5px; border: 1px dashed #8797ad; border-radius: 4px; background: rgba(226, 234, 246, .92); color: #172033; text-align: left; cursor: grab; touch-action: none; user-select: none; font: inherit; font-weight: 400; overflow: hidden; }
+    .letterhead-tile:active { cursor: grabbing; }
+    .letterhead-tile.is-selected { outline: 2px solid #526fac; outline-offset: 1px; z-index: 1; }
+    .letterhead-tile-label { display: block; margin-bottom: 2px; color: #4a5971; font-size: 9px; font-weight: 750; }
+    .letterhead-tile-content { display: block; font: 11px/1.15 Georgia, serif; white-space: pre-line; overflow-wrap: anywhere; max-height: 90px; overflow: hidden; }
+    .letterhead-tile-logo { display: block; max-width: 95%; max-height: 33px; object-fit: contain; }
+    .letterhead-inspector, #letterhead-custom-controls { display: grid; gap: 10px; min-width: 0; }
+    .letterhead-inspector button { width: 100%; }
+    @media (max-width: 660px) { .letterhead-editor { grid-template-columns: 1fr; } .letterhead-stage { min-height: 165px; } }
   </style>
 </head>
 <body>
@@ -470,6 +485,40 @@
           <div class="addressee-actions full">
             <button type="button" id="fill-countryman">Use SEC</button>
           </div>
+
+          <section class="letterhead-layout-settings full" aria-label="First-page layout editor">
+            <label class="check"><input type="checkbox" id="letterhead-layout-enabled"> Customize positions on the first page</label>
+            <small>Drag fields on the page sketch or use arrow keys to nudge a selected field. This changes only the first page; existing letterheads stay unchanged until enabled.</small>
+            <input type="hidden" name="letterhead_layout" id="letterhead-layout-json">
+            <div id="letterhead-editor" class="letterhead-editor" hidden>
+              <div class="letterhead-stage-column">
+                <div id="letterhead-stage" class="letterhead-stage" role="group" aria-label="Drag-and-drop first-page letterhead layout"></div>
+                <small>Approximate placement preview. The PDF preserves the field positions and makes room for the letterhead above the body.</small>
+              </div>
+              <div class="letterhead-inspector">
+                <label>Selected field
+                  <select id="letterhead-selected"></select>
+                </label>
+                <label class="check"><input type="checkbox" id="letterhead-visible" checked> Include this field</label>
+                <label>Text alignment
+                  <select id="letterhead-align">
+                    <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                  </select>
+                </label>
+                <label>Field width <span id="letterhead-width-value">100%</span>
+                  <input id="letterhead-width" type="range" min="16" max="100" value="100">
+                </label>
+                <div id="letterhead-custom-controls" hidden>
+                  <label>Custom label <input id="letterhead-custom-label" maxlength="80" placeholder="Reference"></label>
+                  <label>Custom content <textarea id="letterhead-custom-text" maxlength="500" placeholder="Your own text"></textarea></label>
+                  <button class="secondary" type="button" id="letterhead-remove-field">Remove custom field</button>
+                </div>
+                <button type="button" id="letterhead-add-field">Add custom field</button>
+                <button class="secondary" type="button" id="letterhead-reset">Reset positions</button>
+              </div>
+            </div>
+          </section>
+
         </div>
       </fieldset>
 
@@ -845,5 +894,6 @@
 
   validateButton.addEventListener('click', runValidation);
 </script>
+<script src="/static/letterhead-layout.js"></script>
 </body>
 </html>

@@ -25,7 +25,7 @@ from configured_renderer import (
     LICENSE_PRESETS,
     LetterSettings,
 )
-from first_page_layout import FirstPagePdfRenderer
+from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from legal_style_validator import validate_legal_style
 from typography_renderer import TypographySettings
@@ -221,6 +221,7 @@ def render_pdf():
                 latest_commit = latest_public_github_commit(
                     repository, request.form.get("source_path", "").strip()
                 )
+            letterhead_layout = parse_letterhead_layout(request.form.get("letterhead_layout", ""))
             settings = LetterSettings(
                 show_date=truthy("show_date"),
                 date_format=request.form.get("date_format", "month_day_year"),
@@ -303,6 +304,7 @@ def render_pdf():
             signature=signature,
             wordmark=request.form.get("wordmark", "").strip() or None,
             visible_document_title=request.form.get("document_title", "").strip() or None,
+            letterhead_layout=letterhead_layout,
             title=metadata_value("title"),
             author=metadata_value("author"),
             subject=metadata_value("subject"),

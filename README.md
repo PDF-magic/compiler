@@ -161,6 +161,7 @@ The compiler supports:
 - optional first-page logo or text wordmark
 - configurable PDF metadata
 - configurable first-page letterhead date, submission subtitle, and top-right `Quote #` reference
+- optional drag-and-drop first-page letterhead canvas: move, resize, align, or hide existing header, logo/wordmark, visible title, quote number, date, subtitle, and addressee; add up to 12 labeled custom text fields. Keyboard arrows nudge focused fields (Shift for larger steps). Turning the editor off retains the original fixed letterhead layout. The PDF renderer reserves space below the lowest visible field.
 - optional boxed addressee block
 - separate first-page and later-page headers
 - selectable footer page-count formats using the final PDF page count
