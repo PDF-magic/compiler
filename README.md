@@ -27,6 +27,7 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 
 - output filename
 - PDF metadata: document title, author, subject, and keywords
+- optional previous PDF upload that reuses Title, Author, Subject, and Keywords when the corresponding metadata fields are blank
 - optional smart quotes in rendered text
 - section numbering: legal form such as `I.B.3.a.i`, decimal form such as `1.2.3.4.5`, or no visible numbering
 - optional visible table of contents using the generated section labels and page locations
