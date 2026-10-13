@@ -1128,7 +1128,7 @@ class PdfRenderer:
         for index, paragraph in enumerate(items):
             _, height = paragraph.wrap(self.max_foot_width, y)
             if height <= y:
-                y -= height + 0.02 * inch
+                y -= height + self.footnote_gap()
                 continue
 
             pieces = paragraph.split(self.max_foot_width, y)
@@ -1136,7 +1136,7 @@ class PdfRenderer:
                 first = pieces[0]
                 _, first_height = first.wrap(self.max_foot_width, y)
                 if first_height <= y:
-                    y -= first_height + 0.02 * inch
+                    y -= first_height + self.footnote_gap()
                     remaining.extend(pieces[1:])
                 else:
                     remaining.append(paragraph)
@@ -1145,6 +1145,9 @@ class PdfRenderer:
             remaining.extend(items[index + 1 :])
             break
         return remaining
+
+    def footnote_gap(self) -> float:
+        return 0.02 * inch
 
     def continuation_pages_needed(self, page_refs: dict[int, list[int]], base_pages: int) -> int:
         carry: list[Paragraph] = []

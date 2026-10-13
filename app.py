@@ -25,10 +25,11 @@ from configured_renderer import (
     LICENSE_PRESETS,
     LetterSettings,
 )
-from first_page_layout import FirstPagePdfRenderer
+from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from legal_style_validator import validate_legal_style
-from typography_renderer import RENDER_STYLES, TypographySettings
+from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
+                                 PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
 from url_validator import validate_urls
 
 app = Flask(__name__)
@@ -131,6 +132,15 @@ def index():
     page = render_template(
         "index.html",
         render_styles=RENDER_STYLES,
+        presentation_controls=PRESENTATION_CONTROLS,
+        presentation_toggles=PRESENTATION_TOGGLES,
+        typography_defaults=TypographySettings(),
+        render_presets={style: {
+            name: (getattr(TypographySettings.for_style(style), name) * 100
+                   if name == "blockquote_background_opacity"
+                   else getattr(TypographySettings.for_style(style), name))
+            for name in PROFESSIONAL_TYPOGRAPHY
+        } for style in RENDER_STYLES},
         date_formats=DATE_FORMATS,
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
@@ -224,6 +234,7 @@ def render_pdf():
                 latest_commit = latest_public_github_commit(
                     repository, request.form.get("source_path", "").strip()
                 )
+            letterhead_layout = parse_letterhead_layout(request.form.get("letterhead_layout", ""))
             settings = LetterSettings(
                 show_date=truthy("show_date"),
                 date_format=request.form.get("date_format", "month_day_year"),
@@ -250,6 +261,10 @@ def render_pdf():
             defaults = TypographySettings.for_style(render_style)
             typography = TypographySettings(
                 render_style=render_style,
+                body_alignment=request.form.get("body_alignment", defaults.body_alignment),
+                **{name: form_float(name, getattr(defaults, name)) for name in PRESENTATION_CONTROLS},
+                **{name: truthy(name) if name in request.form else getattr(defaults, name)
+                   for name in PRESENTATION_TOGGLES},
                 body_font_size=form_float("body_font_size", defaults.body_font_size),
                 line_spacing=form_float("line_spacing", defaults.line_spacing),
                 blockquote_corner_radius=form_float("blockquote_corner_radius", defaults.blockquote_corner_radius),
@@ -300,25 +315,29 @@ def render_pdf():
             return jsonify({"error": str(exc)}), 400
 
         output = root / "output.pdf"
-        renderer = FirstPagePdfRenderer(
-            source,
-            output,
-            settings=settings,
-            typography=typography,
-            logo=logo,
-            signature=signature,
-            wordmark=request.form.get("wordmark", "").strip() or None,
-            visible_document_title=request.form.get("document_title", "").strip() or None,
-            title=metadata_value("title"),
-            author=metadata_value("author"),
-            subject=metadata_value("subject"),
-            keywords=metadata_value("keywords"),
-            smart_quotes=truthy("smart_quotes"),
-            underline_links=truthy("underline_links"),
-            hide_url_scheme=truthy("hide_url_scheme"),
-            link_color=link_color,
-        )
-        renderer.build()
+        try:
+            renderer = FirstPagePdfRenderer(
+                source,
+                output,
+                settings=settings,
+                typography=typography,
+                logo=logo,
+                signature=signature,
+                wordmark=request.form.get("wordmark", "").strip() or None,
+                visible_document_title=request.form.get("document_title", "").strip() or None,
+                letterhead_layout=letterhead_layout,
+                title=metadata_value("title"),
+                author=metadata_value("author"),
+                subject=metadata_value("subject"),
+                keywords=metadata_value("keywords"),
+                smart_quotes=truthy("smart_quotes"),
+                underline_links=truthy("underline_links"),
+                hide_url_scheme=truthy("hide_url_scheme"),
+                link_color=link_color,
+            )
+            renderer.build()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         payload = BytesIO(output.read_bytes())
 
     filename = secure_filename(request.form.get("output_name", "document.pdf")) or "document.pdf"

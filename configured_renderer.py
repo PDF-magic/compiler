@@ -975,7 +975,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                         y -= height
                         anchor_note(canvas, doc, paragraph, y + height)
                         paragraph.drawOn(canvas, doc.leftMargin, y)
-                        y -= 0.02 * inch
+                        y -= self.footnote_gap()
                         continue
 
                     pieces = paragraph.split(self.max_foot_width, available)
