@@ -256,7 +256,10 @@ class ConfiguredPdfRenderer(PdfRenderer):
         if not self.letter_settings.addressee:
             return []
         text = "<br/>".join(escape(line) for line in self.letter_settings.addressee.splitlines())
-        paragraph = Paragraph(text, self.styles["BodyX"])
+        style = ParagraphStyle(
+            "AddressX", parent=self.styles["BodyX"], firstLineIndent=0, alignment=0,
+        )
+        paragraph = Paragraph(text, style)
         if not self.letter_settings.addressee_box:
             return [paragraph, Spacer(1, 8)]
 
@@ -921,8 +924,25 @@ class ConfiguredPdfRenderer(PdfRenderer):
         self._total_pages = base_pages + extra
         return extra
 
+    def footnote_bottom_guard(self) -> float:
+        if self.letter_settings.draft_footer:
+            return (0.62 if self.letter_settings.page_number_style != "none" else 0.38) * inch
+        return (0.34 if self.letter_settings.page_number_style != "none" else 0.24) * inch
+
+    def footnote_rule_y(self, items: list[Paragraph]) -> float:
+        return 0.30 * inch + self.foot_top
+
     def page_drawer(self, page_refs: dict[int, list[int]]):
         carry: list[Paragraph] = []
+        anchored_notes: set[int] = set()
+
+        def anchor_note(canvas, doc, paragraph, top):
+            number = getattr(paragraph, "footnote_number", None)
+            if number is not None and number not in anchored_notes:
+                canvas.bookmarkHorizontalAbsolute(
+                    self.note_destination(number), top, left=doc.leftMargin,
+                )
+                anchored_notes.add(number)
 
         def draw(canvas, doc):
             nonlocal carry
@@ -941,23 +961,21 @@ class ConfiguredPdfRenderer(PdfRenderer):
             carry = []
             if items:
                 canvas.saveState()
-                yline = 0.30 * inch + self.foot_top
+                yline = self.footnote_rule_y(items)
                 canvas.setStrokeColor(colors.HexColor("#B8C0CC"))
                 canvas.setLineWidth(0.45)
                 canvas.line(doc.leftMargin, yline, self.page_width - doc.rightMargin, yline)
                 y = yline - 0.08 * inch
-                if self.letter_settings.draft_footer:
-                    bottom_guard = (0.62 if self.letter_settings.page_number_style != "none" else 0.38) * inch
-                else:
-                    bottom_guard = 0.34 * inch if self.letter_settings.page_number_style != "none" else 0.24 * inch
+                bottom_guard = self.footnote_bottom_guard()
 
                 for index, paragraph in enumerate(items):
                     available = y - bottom_guard
                     _, height = paragraph.wrap(self.max_foot_width, available)
                     if height <= available:
                         y -= height
+                        anchor_note(canvas, doc, paragraph, y + height)
                         paragraph.drawOn(canvas, doc.leftMargin, y)
-                        y -= 0.02 * inch
+                        y -= self.footnote_gap()
                         continue
 
                     pieces = paragraph.split(self.max_foot_width, available)
@@ -966,6 +984,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                         _, first_height = first.wrap(self.max_foot_width, available)
                         if first_height <= available:
                             y -= first_height
+                            anchor_note(canvas, doc, paragraph, y + first_height)
                             first.drawOn(canvas, doc.leftMargin, y)
                             carry = pieces[1:] + items[index + 1 :]
                             break
@@ -1002,7 +1021,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
         first_doc = self.document(tmp)
         first_doc.build(
             self.build_story(),
-            onFirstPage=lambda _canvas, _doc: None,
+            onFirstPage=self.first_pass_note_destinations,
             onLaterPages=lambda _canvas, _doc: None,
         )
 

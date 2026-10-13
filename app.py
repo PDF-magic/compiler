@@ -28,7 +28,8 @@ from configured_renderer import (
 from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from legal_style_validator import validate_legal_style
-from typography_renderer import TypographySettings
+from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
+                                 PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
 from url_validator import validate_urls
 
 app = Flask(__name__)
@@ -130,6 +131,16 @@ def latest_public_github_commit(repository: str, source_path: str = "") -> str:
 def index():
     page = render_template(
         "index.html",
+        render_styles=RENDER_STYLES,
+        presentation_controls=PRESENTATION_CONTROLS,
+        presentation_toggles=PRESENTATION_TOGGLES,
+        typography_defaults=TypographySettings(),
+        render_presets={style: {
+            name: (getattr(TypographySettings.for_style(style), name) * 100
+                   if name == "blockquote_background_opacity"
+                   else getattr(TypographySettings.for_style(style), name))
+            for name in PROFESSIONAL_TYPOGRAPHY
+        } for style in RENDER_STYLES},
         date_formats=DATE_FORMATS,
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
@@ -143,7 +154,9 @@ def index():
     return page.replace(
         "</body>",
         '  <script src="/static/letterhead-presets.js"></script>\n'
-        '  <script src="/static/plain-link-options.js"></script>\n</body>',
+        '  <script src="/static/plain-link-options.js"></script>\n'
+        '  <script src="/static/render-styles.js"></script>\n'
+        '  <script src="/static/configuration.js"></script>\n</body>',
         1,
     )
 
@@ -244,19 +257,26 @@ def render_pdf():
                 license_preset=request.form.get("license_preset", "none"),
                 license_subtitle=request.form.get("license_subtitle", "").strip(),
             )
+            render_style = request.form.get("render_style", "classic")
+            defaults = TypographySettings.for_style(render_style)
             typography = TypographySettings(
-                body_font_size=form_float("body_font_size", 12.0),
-                line_spacing=form_float("line_spacing", 1.3),
-                blockquote_corner_radius=form_float("blockquote_corner_radius", 10.0),
+                render_style=render_style,
+                body_alignment=request.form.get("body_alignment", defaults.body_alignment),
+                **{name: form_float(name, getattr(defaults, name)) for name in PRESENTATION_CONTROLS},
+                **{name: truthy(name) if name in request.form else getattr(defaults, name)
+                   for name in PRESENTATION_TOGGLES},
+                body_font_size=form_float("body_font_size", defaults.body_font_size),
+                line_spacing=form_float("line_spacing", defaults.line_spacing),
+                blockquote_corner_radius=form_float("blockquote_corner_radius", defaults.blockquote_corner_radius),
                 blockquote_color=request.form.get("blockquote_color", "").strip(),
                 blockquote_background_color=request.form.get(
                     "blockquote_background_color", ""
                 ).strip(),
                 blockquote_background_opacity=(
-                    form_float("blockquote_background_opacity", 20.0) / 100.0
+                    form_float("blockquote_background_opacity", defaults.blockquote_background_opacity * 100) / 100.0
                 ),
                 blockquote_border=truthy("blockquote_border"),
-                blockquote_border_width=form_float("blockquote_border_width", 1.0),
+                blockquote_border_width=form_float("blockquote_border_width", defaults.blockquote_border_width),
                 admonitions_enabled=(
                     "admonitions_enabled" not in request.form
                     or truthy("admonitions_enabled")
@@ -278,43 +298,46 @@ def render_pdf():
                     kind: form_float(f"admonition_{kind.lower()}_indent", 18.0)
                     for kind in ADMONITION_TYPES
                 },
-                h1_font_size=form_float("h1_font_size", 16.5),
-                h2_font_size=form_float("h2_font_size", 13.7),
-                h3_font_size=form_float("h3_font_size", 12.2),
-                h4_font_size=form_float("h4_font_size", 11.0),
-                footnote_font_size=form_float("footnote_font_size", 8.8),
-                toc_title_font_size=form_float("toc_title_font_size", 14.0),
-                toc_entry_font_size=form_float("toc_entry_font_size", 9.5),
-                wordmark_font_size=form_float("wordmark_font_size", 18.0),
-                date_font_size=form_float("date_font_size", 10.5),
-                subtitle_font_size=form_float("subtitle_font_size", 9.5),
-                header_font_size=form_float("header_font_size", 9.5),
-                page_number_font_size=form_float("page_number_font_size", 8.5),
+                h1_font_size=form_float("h1_font_size", defaults.h1_font_size),
+                h2_font_size=form_float("h2_font_size", defaults.h2_font_size),
+                h3_font_size=form_float("h3_font_size", defaults.h3_font_size),
+                h4_font_size=form_float("h4_font_size", defaults.h4_font_size),
+                footnote_font_size=form_float("footnote_font_size", defaults.footnote_font_size),
+                toc_title_font_size=form_float("toc_title_font_size", defaults.toc_title_font_size),
+                toc_entry_font_size=form_float("toc_entry_font_size", defaults.toc_entry_font_size),
+                wordmark_font_size=form_float("wordmark_font_size", defaults.wordmark_font_size),
+                date_font_size=form_float("date_font_size", defaults.date_font_size),
+                subtitle_font_size=form_float("subtitle_font_size", defaults.subtitle_font_size),
+                header_font_size=form_float("header_font_size", defaults.header_font_size),
+                page_number_font_size=form_float("page_number_font_size", defaults.page_number_font_size),
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
         output = root / "output.pdf"
-        renderer = FirstPagePdfRenderer(
-            source,
-            output,
-            settings=settings,
-            typography=typography,
-            logo=logo,
-            signature=signature,
-            wordmark=request.form.get("wordmark", "").strip() or None,
-            visible_document_title=request.form.get("document_title", "").strip() or None,
-            letterhead_layout=letterhead_layout,
-            title=metadata_value("title"),
-            author=metadata_value("author"),
-            subject=metadata_value("subject"),
-            keywords=metadata_value("keywords"),
-            smart_quotes=truthy("smart_quotes"),
-            underline_links=truthy("underline_links"),
-            hide_url_scheme=truthy("hide_url_scheme"),
-            link_color=link_color,
-        )
-        renderer.build()
+        try:
+            renderer = FirstPagePdfRenderer(
+                source,
+                output,
+                settings=settings,
+                typography=typography,
+                logo=logo,
+                signature=signature,
+                wordmark=request.form.get("wordmark", "").strip() or None,
+                visible_document_title=request.form.get("document_title", "").strip() or None,
+                letterhead_layout=letterhead_layout,
+                title=metadata_value("title"),
+                author=metadata_value("author"),
+                subject=metadata_value("subject"),
+                keywords=metadata_value("keywords"),
+                smart_quotes=truthy("smart_quotes"),
+                underline_links=truthy("underline_links"),
+                hide_url_scheme=truthy("hide_url_scheme"),
+                link_color=link_color,
+            )
+            renderer.build()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         payload = BytesIO(output.read_bytes())
 
     filename = secure_filename(request.form.get("output_name", "document.pdf")) or "document.pdf"

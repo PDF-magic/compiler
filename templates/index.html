@@ -261,9 +261,14 @@
       <p class="intro">Configure one section at a time, then validate or render your PDF.</p>
     </div>
     <div class="action-group">
+      <button id="export-config" class="secondary" type="button">Export config</button>
+      <button id="import-config" class="secondary" type="button">Import config</button>
+      <input id="config-file" type="file" accept=".json,application/json" hidden>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle color theme"></button>
     </div>
   </div>
+  <p class="intro">Configurations save compiler settings; Markdown and uploaded files are kept separately.</p>
+  <p id="config-status" class="intro" role="status" aria-live="polite"></p>
 
   <form id="compiler-form" action="/render" method="post" enctype="multipart/form-data" target="_blank">
     <div class="wizard">
@@ -310,7 +315,16 @@
     <fieldset class="wizard-page" data-step-title="Typography">
       <legend>Typography</legend>
       <div class="grid">
+        <label class="full">Typography preset
+          <select id="render-style" name="render_style">
+            {% for value, label in render_styles.items() %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <small>Apply Classic or Professional filing to fill the controls with suggested values. Every value remains editable; the preset adds no hidden rendering rules.</small>
+        </label>
         <div class="full"><small>Rendered PDFs continue to use the Times family. Font sizes are in points; body line spacing is a multiplier of the body font size.</small></div>
+        <script id="render-presets" type="application/json">{{ render_presets|tojson }}</script>
         <label>Body text size
           <input type="number" name="body_font_size" value="12" min="6" max="36" step="0.1">
         </label>
@@ -354,6 +368,31 @@
         <label>Page numbers
           <input type="number" name="page_number_font_size" value="8.5" min="6" max="36" step="0.1">
         </label>
+        <label>Paragraph alignment
+          <select name="body_alignment">
+            <option value="left">Left</option><option value="justify">Justified</option>
+            <option value="center">Centered</option><option value="right">Right</option>
+          </select>
+        </label>
+        {% for group in ['Page layout', 'Paragraphs', 'Headings', 'Quotations', 'Footnotes'] %}
+        <details class="full">
+          <summary>{{ group }} settings</summary>
+          <div class="grid">
+            {% for name, control in presentation_controls.items() if control.group == group %}
+            <label>{{ control.label }}
+              <input type="number" name="{{ name }}" value="{{ typography_defaults|attr(name) }}"
+                     min="{{ control.min }}" max="{{ control.max }}" step="{{ control.step }}" required>
+            </label>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+        {% for name, label in presentation_toggles.items() %}
+        <input type="hidden" name="{{ name }}" value="0">
+        <label class="check"><input type="checkbox" name="{{ name }}" value="1"
+            {% if typography_defaults|attr(name) %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+        <small class="full">Automatic footnote sizing uses the maximum footnote area and keeps body text clear of notes. The top margin is a minimum; the Letterhead editor makes room for positioned fields.</small>
       </div>
     </fieldset>
 
@@ -487,7 +526,7 @@
           </div>
 
           <section class="letterhead-layout-settings full" aria-label="First-page layout editor">
-            <label class="check"><input type="checkbox" id="letterhead-layout-enabled"> Customize positions on the first page</label>
+            <label class="check"><input type="checkbox" id="letterhead-layout-enabled" name="letterhead_layout_enabled" value="1"> Customize positions on the first page</label>
             <small>Drag fields on the page sketch or use arrow keys to nudge a selected field. This changes only the first page; existing letterheads stay unchanged until enabled.</small>
             <input type="hidden" name="letterhead_layout" id="letterhead-layout-json">
             <div id="letterhead-editor" class="letterhead-editor" hidden>
@@ -504,6 +543,12 @@
                   <select id="letterhead-align">
                     <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
                   </select>
+                </label>
+                <label>Horizontal position (%)
+                  <input id="letterhead-x" type="number" min="0" max="100" step="0.1" value="0">
+                </label>
+                <label>Vertical position (%)
+                  <input id="letterhead-y" type="number" min="0" max="100" step="0.1" value="0">
                 </label>
                 <label>Field width <span id="letterhead-width-value">100%</span>
                   <input id="letterhead-width" type="range" min="16" max="100" value="100">

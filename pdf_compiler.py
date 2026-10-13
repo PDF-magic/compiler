@@ -63,9 +63,30 @@ class RefParagraph(Paragraph):
         self.outline = outline
         super().__init__(text, style, bulletText=bulletText, **kwargs)
 
+    def split(self, availWidth, availHeight):
+        pieces = super().split(availWidth, availHeight)
+
+        def references(fragment):
+            found = set()
+            if isinstance(fragment, (list, tuple)):
+                for item in fragment:
+                    found.update(references(item))
+            else:
+                for _index, target in getattr(fragment, "link", []):
+                    match = re.fullmatch(r"#footnote-(\d+)", target)
+                    if match:
+                        found.add(int(match.group(1)))
+            return found
+
+        for index, piece in enumerate(pieces):
+            present = references(piece.frags)
+            piece.footnote_refs = [number for number in self.footnote_refs if number in present]
+            piece.outline = self.outline if index == 0 else None
+        return pieces
+
     def draw(self):
         accent = getattr(self.style, "quoteAccent", None)
-        if accent is not None:
+        if accent is not None and not getattr(self.style, "quotePlain", False):
             self.canv.saveState()
             x = self.style.leftIndent - 10
             padding_top = getattr(self.style, "quotePaddingTop", 6)
@@ -1107,7 +1128,7 @@ class PdfRenderer:
         for index, paragraph in enumerate(items):
             _, height = paragraph.wrap(self.max_foot_width, y)
             if height <= y:
-                y -= height + 0.02 * inch
+                y -= height + self.footnote_gap()
                 continue
 
             pieces = paragraph.split(self.max_foot_width, y)
@@ -1115,7 +1136,7 @@ class PdfRenderer:
                 first = pieces[0]
                 _, first_height = first.wrap(self.max_foot_width, y)
                 if first_height <= y:
-                    y -= first_height + 0.02 * inch
+                    y -= first_height + self.footnote_gap()
                     remaining.extend(pieces[1:])
                 else:
                     remaining.append(paragraph)
@@ -1124,6 +1145,9 @@ class PdfRenderer:
             remaining.extend(items[index + 1 :])
             break
         return remaining
+
+    def footnote_gap(self) -> float:
+        return 0.02 * inch
 
     def continuation_pages_needed(self, page_refs: dict[int, list[int]], base_pages: int) -> int:
         carry: list[Paragraph] = []
@@ -1308,6 +1332,10 @@ def main() -> int:
     parser.add_argument("--title", help="PDF document title metadata")
     parser.add_argument("--author", help="PDF document author metadata")
     parser.add_argument(
+        "--render-style", choices=("classic", "professional"), default="classic",
+        help="Presentation style (professional uses a restrained filing layout)",
+    )
+    parser.add_argument(
         "--start-heading",
         help="Compile only content after an exact Markdown heading",
     )
@@ -1319,7 +1347,19 @@ def main() -> int:
     args = parser.parse_args()
 
     output = args.output or args.source.with_suffix(".pdf")
-    renderer = PdfRenderer(
+    renderer_class = PdfRenderer
+    presentation = {}
+    if args.render_style == "professional":
+        from first_page_layout import FirstPagePdfRenderer
+        from configured_renderer import LetterSettings
+        from typography_renderer import TypographySettings
+
+        renderer_class = FirstPagePdfRenderer
+        presentation = {
+            "settings": LetterSettings(show_date=False, page_number_style="page_number_of_total"),
+            "typography": TypographySettings.for_style("professional"),
+        }
+    renderer = renderer_class(
         args.source,
         output,
         logo=args.logo,
@@ -1329,6 +1369,7 @@ def main() -> int:
         author=args.author,
         start_heading=args.start_heading,
         smart_quotes=args.smart_quotes,
+        **presentation,
     )
     pages, footnotes, continuations = renderer.build()
     print(output)
