@@ -301,7 +301,7 @@ class PdfRenderer:
     url_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     bare_url_re = re.compile(r"https?://[^\s<]+")
     note_ref_re = re.compile(r"\[\^([^\]]+)\]")
-    note_number_ref_re = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+    note_number_ref_re = re.compile(r"(?<!\{)\{\s*([^{}]+?)\s*\}(?!\})")
 
     def __init__(
         self,
@@ -862,7 +862,7 @@ class PdfRenderer:
                         self.note_number(match.group(1))
 
     def interpolate_note_numbers(self, text: str, *, linked: bool = False) -> str:
-        """Replace ``{{key}}`` with an already-assigned footnote number."""
+        """Replace ``{key}`` with an already-assigned footnote number."""
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()

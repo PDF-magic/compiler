@@ -100,13 +100,13 @@ Markdown footnote keys can be reused as stable references to the final rendered 
 The first proposition.[^ref-a]
 ```
 
-Elsewhere in the document, `{{ref-a}}` is replaced with that note number as plain text:
+Elsewhere in the document, `{ref-a}` is replaced with a linked, baseline note number:
 
 ```markdown
-_See supra note_ {{ref-a}}.
+_See supra note_ {ref-a}.
 ```
 
-If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{{key}}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{{key}}` is left visible rather than being assigned a number.
+If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{key}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{key}` is left visible rather than being assigned a number. The previous double-braced syntax (`{{key}}`) is no longer interpolated.
 
 ## Command line
 
@@ -155,7 +155,7 @@ The compiler supports:
 - PDF outline/bookmark entries for sections regardless of visible TOC settings
 - an optional visible table of contents with hierarchical indentation and page numbers
 - configurable Markdown footnote placement: bottom of the referenced page, a single endnote list, or document-end endnotes grouped by the H1 where each note is first cited
-- `{{key}}` interpolation for stable references to final Markdown footnote numbers
+- `{key}` interpolation for stable references to final Markdown footnote numbers
 - basic bold, italic, inline code, links, block quotes with optional per-block hex colors, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
