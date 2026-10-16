@@ -11,11 +11,14 @@ from typography_renderer import TypographyPdfRenderer, TypographySettings
 
 
 class QuotationTests(unittest.TestCase):
-    def _renderer(self, root: Path, text: str, *, typography=None):
+    def _renderer(self, root: Path, text: str, *, typography=None,
+                  quote_inline_number_footnotes=False):
         source = root / "source.md"
         source.write_text(text, encoding="utf-8")
         renderer_class = TypographyPdfRenderer if typography else PdfRenderer
-        kwargs = {"typography": typography} if typography else {}
+        kwargs = {"quote_inline_number_footnotes": quote_inline_number_footnotes}
+        if typography:
+            kwargs["typography"] = typography
         return renderer_class(source, root / "output.pdf", **kwargs)
 
     def test_quote_and_source_markers_render_as_joined_quotation(self):
@@ -73,21 +76,22 @@ class QuotationTests(unittest.TestCase):
                 root,
                 (
                     "> [!QUOTE]\n"
-                    "> First passage.[^4] Later passage.[^17]\n"
-                    "> [^4]: Original fourth note.\n"
-                    "> [^17]: Original seventeenth note.\n"
-                    "> [!SOURCE] Author[^17]\n\n"
+                    "> First passage.[4] Later passage.[17]\n"
+                    "> [4]: Original fourth note.\n"
+                    "> [17]: Original seventeenth note.\n"
+                    "> [!SOURCE] Author[17]\n\n"
                     "Document text.[^main]\n\n"
                     "[^main]: Document footnote."
                 ),
+                quote_inline_number_footnotes=True,
             )
             flowables = renderer.blockquote_flowables(
                 [
                     "[!QUOTE]",
-                    "First passage.[^4] Later passage.[^17]",
-                    "[^4]: Original fourth note.",
-                    "[^17]: Original seventeenth note.",
-                    "[!SOURCE] Author[^17]",
+                    "First passage.[4] Later passage.[17]",
+                    "[4]: Original fourth note.",
+                    "[17]: Original seventeenth note.",
+                    "[!SOURCE] Author[17]",
                 ]
             )
 
@@ -117,13 +121,14 @@ class QuotationTests(unittest.TestCase):
                 root,
                 (
                     "> [!QUOTE]\n"
-                    "> First passage.[^4] Later passage.[^17]\n"
-                    "> [^4]: Original fourth note.\n"
-                    "> [^17]: Original seventeenth note.\n"
+                    "> First passage.[4] Later passage.[17]\n"
+                    "> [4]: Original fourth note.\n"
+                    "> [17]: Original seventeenth note.\n"
                     "> [!SOURCE] Ada\n\n"
                     "Document text.[^main]\n\n"
                     "[^main]: Document footnote."
                 ),
+                quote_inline_number_footnotes=True,
             )
             _pages, footnotes, _continuations = renderer.build()
 
@@ -137,6 +142,143 @@ class QuotationTests(unittest.TestCase):
                 self.assertLess(body.y0, note_four.y0)
                 self.assertLess(note_four.y0, note_seventeen.y0)
                 self.assertLess(note_seventeen.y0, source.y0)
+
+
+    def test_quote_local_numbers_can_repeat_in_separate_quotes(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                (
+                    "> [!QUOTE]\n"
+                    "> First passage.[17]\n"
+                    "> [17]: First source footnote.\n"
+                    "> [!SOURCE] First Author\n\n"
+                    "Document paragraph.[^main]\n\n"
+                    "> [!QUOTE]\n"
+                    "> Second passage.[17]\n"
+                    "> [17]: Second source footnote.\n"
+                    "> [!SOURCE] Second Author\n\n"
+                    "[^main]: Document footnote."
+                ),
+                quote_inline_number_footnotes=True,
+            )
+            self.assertEqual(renderer.order, ["main"])
+            story = renderer.build_story()
+            rendered = [
+                item.getPlainText() for item in story
+                if hasattr(item, "getPlainText")
+            ]
+            self.assertIn("First passage.17", rendered)
+            self.assertIn("17. First source footnote.", rendered)
+            self.assertIn("Second passage.17", rendered)
+            self.assertIn("17. Second source footnote.", rendered)
+            self.assertEqual(renderer.order, ["main"])
+
+    def test_quote_local_reference_only_replaces_defined_labels(self):
+        with TemporaryDirectory() as temp:
+            renderer = self._renderer(
+                Path(temp), "> [!QUOTE]\n> Example.",
+                quote_inline_number_footnotes=True,
+            )
+            rendered, refs = renderer.quotation_inline(
+                "Local [17], unknown [99], link [17](https://example.org), "
+                "and image ![17](https://example.org/image.png).",
+                {"17": "Source note."},
+            )
+            self.assertEqual(rendered.count("<super>17</super>"), 1)
+            self.assertIn("[99]", rendered)
+            self.assertEqual(refs, [])
+
+    def test_legacy_caret_quote_markers_remain_supported(self):
+        with TemporaryDirectory() as temp:
+            renderer = self._renderer(
+                Path(temp),
+                "> [!QUOTE]\n> Legacy citation.[^17]\n"
+                "> [^17]: Original footnote.\n> [!SOURCE] Author",
+            )
+            flowables = renderer.blockquote_flowables(
+                ["[!QUOTE]", "Legacy citation.[^17]",
+                 "[^17]: Original footnote.", "[!SOURCE] Author"]
+            )
+            self.assertEqual(flowables[0].getPlainText(), "Legacy citation.17")
+            self.assertEqual(flowables[1].getPlainText(), "17. Original footnote.")
+            self.assertEqual(renderer.order, [])
+
+
+    def test_bracket_numbers_are_literal_until_explicitly_enabled(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            text = (
+                "> [!QUOTE]\n"
+                "> A literal [11] could mean something else.\n"
+                "> [11]: Original source note.\n"
+                "> [!SOURCE] Writer"
+            )
+            renderer = self._renderer(root, text)
+            self.assertFalse(renderer.quote_inline_number_footnotes)
+            quote = renderer.blockquote_flowables([
+                "[!QUOTE]", "A literal [11] could mean something else.",
+                "[11]: Original source note.", "[!SOURCE] Writer",
+            ])
+            self.assertEqual(len(quote), 2)
+            self.assertIn("[11]", quote[0].getPlainText())
+            self.assertIn("[11]: Original source note.", quote[0].getPlainText())
+            self.assertEqual(renderer.order, [])
+
+            enabled = self._renderer(root, text, quote_inline_number_footnotes=True)
+            quote = enabled.blockquote_flowables([
+                "[!QUOTE]", "A literal [11] could mean something else.",
+                "[11]: Original source note.", "[!SOURCE] Writer",
+            ])
+            self.assertEqual([item.getPlainText() for item in quote], [
+                "A literal 11 could mean something else.",
+                "11. Original source note.", "— Writer",
+            ])
+            self.assertEqual(enabled.order, [])
+
+    def test_opt_in_accepts_only_defined_numeric_brackets_inside_sourced_quotes(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = self._renderer(
+                root,
+                "> [!QUOTE]\n> Example.\n> [11]: Source note.",
+                quote_inline_number_footnotes=True,
+            )
+            body, refs = renderer.quotation_inline(
+                "Citation [11], unknown [99], named [source], "
+                "link [11](https://example.org), image ![11](x.png), "
+                "and legacy [^11].",
+                {"11": "Source note."},
+            )
+            self.assertEqual(body.count("<super>11</super>"), 2)
+            self.assertIn("[99]", body)
+            self.assertIn("[source]", body)
+            self.assertIn("https://example.org", body)
+            self.assertIn("x.png", body)
+            self.assertEqual(refs, [])
+            outside, _ = renderer.markdown_inline("Elsewhere [11]")
+            self.assertEqual(outside, "Elsewhere [11]")
+
+    def test_web_can_enable_inline_quote_numbers(self):
+        from app import app
+
+        markdown = (
+            "> [!QUOTE]\n> Original statement.[11]\n"
+            "> [11]: Original source note.\n> [!SOURCE] Writer"
+        )
+        for enabled in (False, True):
+            data = {"markdown": markdown}
+            if enabled:
+                data["quote_inline_number_footnotes"] = "1"
+            response = app.test_client().post("/render", data=data)
+            self.assertEqual(response.status_code, 200, response.data[:500])
+            with pymupdf.open(stream=response.data, filetype="pdf") as pdf:
+                text = pdf[0].get_text()
+                if enabled:
+                    self.assertIn("11. Original source note.", text)
+                else:
+                    self.assertIn("[11]: Original source note.", text)
 
     def test_source_marker_is_literal_in_an_ordinary_blockquote(self):
         with TemporaryDirectory() as temp:

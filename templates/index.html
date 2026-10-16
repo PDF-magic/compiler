@@ -416,6 +416,9 @@
             </select>
             <small>Endnotes keep global numbering and links. H1 grouping collects notes at the document end under the H1 where each note is first cited.</small>
           </label>
+          <label class="check full"><input type="checkbox" name="quote_inline_number_footnotes"> Enable inline numbered footnotes (<code>[11]</code>) in sourced blockquotes
+            <small>Off by default to avoid interpreting ordinary bracketed text as a citation. With this on, <code>[11]</code> and <code>[11]:</code> work only inside <code>[!QUOTE]</code> blocks with matching local definitions. Standard <code>[^11]</code> works without this setting.</small>
+          </label>
           <div class="full">
             <small>PDF outline/bookmarks are always generated from Markdown sections, even when the visible TOC is off or visible section numbering is disabled.</small>
           </div>
