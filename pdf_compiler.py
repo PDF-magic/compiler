@@ -301,6 +301,9 @@ class PdfRenderer:
     url_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     bare_url_re = re.compile(r"https?://[^\s<]+")
     note_ref_re = re.compile(r"\[\^([^\]]+)\]")
+    # Only locally defined quotation references are substituted.
+    # Do not treat Markdown links or image labels as footnote markers.
+    quotation_note_ref_re = re.compile(r"(?<!!)\[\^?([^\]\n]+)\](?!\(|\[)")
     note_number_ref_re = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
     def __init__(
@@ -572,7 +575,8 @@ class PdfRenderer:
 
     @staticmethod
     def quotation_footnote_definition(text: str) -> tuple[str, str] | None:
-        match = re.fullmatch(r"\[\^([^\]]+)\]:\s*(.*?)\s*", text.strip())
+        # Preserve the legacy caret format while accepting caret-free local notes.
+        match = re.fullmatch(r"\[\^?([^\]\n]+)\]:\s*(.*?)\s*", text.strip())
         return (match.group(1), match.group(2)) if match else None
 
     def quotation_local_notes(self, quote_lines: list[str]) -> dict[str, str]:
@@ -599,7 +603,7 @@ class PdfRenderer:
             return placeholder
 
         rendered, refs = self.markdown_inline(
-            self.note_ref_re.sub(replace_local_ref, text),
+            self.quotation_note_ref_re.sub(replace_local_ref, text),
             True,
         )
         for placeholder, key in placeholders.items():

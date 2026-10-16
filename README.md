@@ -218,17 +218,17 @@ The equivalent shorthand is `> [!SRC] Albert Einstein`.
 
 Neither marker is printed. The source renders beneath the quotation, right-aligned and prefixed with an em dash. Inline Markdown, links, and footnote references remain available in both the quotation and its source.
 
-To preserve footnotes from the quoted source, define them inside the quotation. Their labels are rendered exactly as written, so numbering may be independent and discontinuous without affecting the document's ordinary footnote sequence:
+To preserve footnotes from the quoted source, define them inside the quotation using caret-free markers such as `[17]` and `[17]:`. Their labels are rendered exactly as written, so numbering may be independent and discontinuous without affecting the document's ordinary footnote sequence:
 
 ```markdown
 > [!QUOTE]
-> First quoted passage.[^4] Later quoted passage.[^17]
-> [^4]: The source's original fourth footnote.
-> [^17]: The source's original seventeenth footnote.
+> First quoted passage.[4] Later quoted passage.[17]
+> [4]: The source's original fourth footnote.
+> [17]: The source's original seventeenth footnote.
 > [!SOURCE] Author, *Work*
 ```
 
-Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. A footnote whose definition is outside the quotation remains an ordinary document footnote.
+Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. Each `[!QUOTE]` has its own local labels: separate quotations may both use `[17]` with different `[17]:` definitions. An ordinary document footnote still uses `[^key]` and a definition outside the quotation; these receive the document's sequential numbering. Existing caret-prefixed quote-local references and definitions remain accepted for backward compatibility. Caret-free quote-local markers are compiler-specific, not portable Markdown footnote syntax, so other Markdown editors may interpret them differently.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
 
