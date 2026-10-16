@@ -129,6 +129,7 @@ Useful options:
 --author TEXT          set PDF author metadata
 --start-heading TEXT   compile only content after an exact Markdown heading
 --smart-quotes         use typographic quotes in rendered text
+--quote-inline-number-footnotes   opt in to [11] notation inside [!QUOTE] blocks
 ```
 
 For example:
@@ -218,17 +219,29 @@ The equivalent shorthand is `> [!SRC] Albert Einstein`.
 
 Neither marker is printed. The source renders beneath the quotation, right-aligned and prefixed with an em dash. Inline Markdown, links, and footnote references remain available in both the quotation and its source.
 
-To preserve footnotes from the quoted source, define them inside the quotation using caret-free markers such as `[17]` and `[17]:`. Their labels are rendered exactly as written, so numbering may be independent and discontinuous without affecting the document's ordinary footnote sequence:
+To preserve footnotes from the quoted source, define them inside the quotation. The default (unambiguous) syntax uses caret-prefixed markers `[^17]` and `[^17]:`; their original labels remain independent of the document's footnote sequence:
 
 ```markdown
 > [!QUOTE]
-> First quoted passage.[4] Later quoted passage.[17]
-> [4]: The source's original fourth footnote.
-> [17]: The source's original seventeenth footnote.
+> First quoted passage.[^4] Later quoted passage.[^17]
+> [^4]: The source's original fourth footnote.
+> [^17]: The source's original seventeenth footnote.
 > [!SOURCE] Author, *Work*
 ```
 
-Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. Each `[!QUOTE]` has its own local labels: separate quotations may both use `[17]` with different `[17]:` definitions. An ordinary document footnote still uses `[^key]` and a definition outside the quotation; these receive the document's sequential numbering. Existing caret-prefixed quote-local references and definitions remain accepted for backward compatibility. Caret-free quote-local markers are compiler-specific, not portable Markdown footnote syntax, so other Markdown editors may interpret them differently.
+Quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. Each `[!QUOTE]` has its own labels, so different quotations can each use footnote 17 with different definitions. An ordinary document footnote outside the quotation still uses `[^key]` and receives the document's sequential numbering.
+
+**Optional inline numbered quotation footnotes:** Check **Enable inline numbered footnotes ([11]) in sourced blockquotes** under **Sections & TOC**, or pass `--quote-inline-number-footnotes` on the CLI. This allows copied source text of the form `[11]` and `[11]:` *only inside* a `[!QUOTE]` block, provided a matching local definition exists:
+
+```markdown
+> [!QUOTE]
+> First quoted passage.[4] Later passage.[17]
+> [4]: Original fourth source footnote.
+> [17]: Original seventeenth source footnote.
+> [!SOURCE] Author, *Work*
+```
+
+The shorthand is **off by default** because `[11]` may be ordinary bracketed text. Without it, those characters remain literal instead of becoming citations. When enabled, only numeric caret-free references are recognized; unknown numbers, Markdown links and image labels are not converted. Standard `[^key]` quotation footnotes work with or without the option. Quote-local shorthand does not change document-wide footnote numbering, and remains a compiler-specific extension rather than portable Markdown syntax. The setting is included in exported/imported web configurations.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
 

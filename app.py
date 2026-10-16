@@ -331,6 +331,7 @@ def render_pdf():
                 subject=metadata_value("subject"),
                 keywords=metadata_value("keywords"),
                 smart_quotes=truthy("smart_quotes"),
+                quote_inline_number_footnotes=truthy("quote_inline_number_footnotes"),
                 underline_links=truthy("underline_links"),
                 hide_url_scheme=truthy("hide_url_scheme"),
                 link_color=link_color,

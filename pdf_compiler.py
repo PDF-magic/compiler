@@ -301,9 +301,9 @@ class PdfRenderer:
     url_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     bare_url_re = re.compile(r"https?://[^\s<]+")
     note_ref_re = re.compile(r"\[\^([^\]]+)\]")
-    # Only locally defined quotation references are substituted.
-    # Do not treat Markdown links or image labels as footnote markers.
-    quotation_note_ref_re = re.compile(r"(?<!!)\[\^?([^\]\n]+)\](?!\(|\[)")
+    # Caret-free quotation footnotes are numeric and opt-in because [11] can
+    # also be ordinary bracketed text. Do not rewrite images or Markdown links.
+    quotation_number_ref_re = re.compile(r"(?<!!)\[([0-9]+)\](?!\(|\[)")
     note_number_ref_re = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
     def __init__(
@@ -318,6 +318,7 @@ class PdfRenderer:
         author: str | None = None,
         start_heading: str | None = None,
         smart_quotes: bool = False,
+        quote_inline_number_footnotes: bool = False,
         underline_links: bool = True,
         link_color: str = LINK_COLOR,
     ):
@@ -329,6 +330,7 @@ class PdfRenderer:
         self.title = title or source.stem
         self.author = author or ""
         self.smart_quotes = smart_quotes
+        self.quote_inline_number_footnotes = quote_inline_number_footnotes
         self.underline_links = underline_links
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", link_color):
             raise ValueError("Link color must be a six-digit hex color, such as #2E732E.")
@@ -573,11 +575,16 @@ class PdfRenderer:
         )
         return match.group(1) if match else None
 
-    @staticmethod
-    def quotation_footnote_definition(text: str) -> tuple[str, str] | None:
-        # Preserve the legacy caret format while accepting caret-free local notes.
-        match = re.fullmatch(r"\[\^?([^\]\n]+)\]:\s*(.*?)\s*", text.strip())
-        return (match.group(1), match.group(2)) if match else None
+    def quotation_footnote_definition(self, text: str) -> tuple[str, str] | None:
+        # Explicit caret footnotes work regardless of the shorthand option.
+        match = re.fullmatch(r"\[\^([^\]\n]+)\]:\s*(.*?)\s*", text.strip())
+        if match:
+            return match.group(1), match.group(2)
+        if self.quote_inline_number_footnotes:
+            match = re.fullmatch(r"\[([0-9]+)\]:\s*(.*?)\s*", text.strip())
+            if match:
+                return match.group(1), match.group(2)
+        return None
 
     def quotation_local_notes(self, quote_lines: list[str]) -> dict[str, str]:
         return dict(
@@ -602,10 +609,11 @@ class PdfRenderer:
             placeholders[placeholder] = key
             return placeholder
 
-        rendered, refs = self.markdown_inline(
-            self.quotation_note_ref_re.sub(replace_local_ref, text),
-            True,
-        )
+        # The standard [^key] syntax is always available in sourced quotes.
+        text = self.note_ref_re.sub(replace_local_ref, text)
+        if self.quote_inline_number_footnotes:
+            text = self.quotation_number_ref_re.sub(replace_local_ref, text)
+        rendered, refs = self.markdown_inline(text, True)
         for placeholder, key in placeholders.items():
             rendered = rendered.replace(
                 placeholder,
@@ -1348,6 +1356,11 @@ def main() -> int:
         action="store_true",
         help="Convert straight quotes to typographic quotes in rendered text",
     )
+    parser.add_argument(
+        "--quote-inline-number-footnotes",
+        action="store_true",
+        help="Interpret [11] citations and [11]: definitions inside [!QUOTE] blocks (off by default)",
+    )
     args = parser.parse_args()
 
     output = args.output or args.source.with_suffix(".pdf")
@@ -1373,6 +1386,7 @@ def main() -> int:
         author=args.author,
         start_heading=args.start_heading,
         smart_quotes=args.smart_quotes,
+        quote_inline_number_footnotes=args.quote_inline_number_footnotes,
         **presentation,
     )
     pages, footnotes, continuations = renderer.build()
