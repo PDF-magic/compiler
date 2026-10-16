@@ -218,6 +218,76 @@ def smarten_quotes(text: str) -> str:
     return "".join(part if index % 2 else transform(part) for index, part in enumerate(parts))
 
 
+
+def protect_inline_code(text: str) -> tuple[str, dict[str, str]]:
+    """Protect backtick code spans and escaped backticks from Markdown parsing.
+
+    Code spans use matching backtick-run lengths. Newlines become spaces;
+    one surrounding space is removed unless the content is only spaces.
+    """
+    prefix = "@@PDFCODE"
+    while prefix in text:
+        prefix += "X"
+    replacements: dict[str, str] = {}
+    result: list[str] = []
+    cursor = 0
+    index = 0
+
+    def token(markup: str) -> str:
+        placeholder = f"{prefix}{len(replacements)}@@"
+        replacements[placeholder] = markup
+        return placeholder
+
+    while index < len(text):
+        if text[index] != "`":
+            index += 1
+            continue
+
+        slash_count = 0
+        while index > slash_count and text[index - slash_count - 1] == "\\":
+            slash_count += 1
+        if slash_count % 2:
+            result.append(text[cursor:index - 1])
+            result.append(token("`"))
+            index += 1
+            cursor = index
+            continue
+
+        opening_end = index
+        while opening_end < len(text) and text[opening_end] == "`":
+            opening_end += 1
+        width = opening_end - index
+        search = opening_end
+        closing_start = -1
+        closing_end = -1
+        while search < len(text):
+            candidate = text.find("`", search)
+            if candidate == -1:
+                break
+            candidate_end = candidate
+            while candidate_end < len(text) and text[candidate_end] == "`":
+                candidate_end += 1
+            if candidate_end - candidate == width:
+                closing_start, closing_end = candidate, candidate_end
+                break
+            search = candidate_end
+
+        if closing_start == -1:
+            index = opening_end
+            continue
+
+        content = text[opening_end:closing_start].replace("\n", " ")
+        if content.startswith(" ") and content.endswith(" ") and content.strip(" "):
+            content = content[1:-1]
+        result.append(text[cursor:index])
+        result.append(token(f'<font name="Courier">{html.escape(content, quote=False)}</font>'))
+        index = closing_end
+        cursor = index
+
+    result.append(text[cursor:])
+    return "".join(result), replacements
+
+
 def extract_body(markdown: str, start_heading: str | None = None) -> str:
     """Return all Markdown, or only the content after an exact heading."""
     if not start_heading:
@@ -589,6 +659,7 @@ class PdfRenderer:
     ) -> tuple[str, list[int]]:
         """Render quote-local citations without consuming document note numbers."""
         placeholders: dict[str, str] = {}
+        shielded, code_spans = protect_inline_code(text)
 
         def replace_local_ref(match: re.Match[str]) -> str:
             key = match.group(1)
@@ -599,7 +670,7 @@ class PdfRenderer:
             return placeholder
 
         rendered, refs = self.markdown_inline(
-            self.note_ref_re.sub(replace_local_ref, text),
+            self.note_ref_re.sub(replace_local_ref, shielded),
             True,
         )
         for placeholder, key in placeholders.items():
@@ -607,6 +678,8 @@ class PdfRenderer:
                 placeholder,
                 f"<super>{html.escape(key)}</super>",
             )
+        for placeholder, markup in code_spans.items():
+            rendered = rendered.replace(placeholder, markup)
         return rendered, refs
 
     def quotation_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
@@ -836,7 +909,8 @@ class PdfRenderer:
 
     def prime_note_numbers(self) -> None:
         """Assign final note numbers from real footnote citations before rendering."""
-        lines = self.body_text.splitlines()
+        shielded, _ = protect_inline_code(self.body_text)
+        lines = shielded.splitlines()
         index = 0
         while index < len(lines):
             if not lines[index].startswith(">"):
@@ -909,6 +983,7 @@ class PdfRenderer:
         )
 
     def markdown_inline(self, text: str, refs_on: bool = True) -> tuple[str, list[int]]:
+        text, code_spans = protect_inline_code(text)
         refs: list[int] = []
         if refs_on:
 
@@ -931,7 +1006,6 @@ class PdfRenderer:
         text = re.sub(r"__([^_]+)__", r"<b>\1</b>", text)
         text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<i>\1</i>", text)
         text = re.sub(r"(?<![\w/])_([^_\n]+)_(?![\w/])", r"<i>\1</i>", text)
-        text = re.sub(r"`([^`]+)`", r"\1", text)
         text = re.sub(
             r"@@FNCITE(\d+)@@",
             r'<link href="#footnote-\1"><super>\1</super></link>',
@@ -942,7 +1016,19 @@ class PdfRenderer:
             r'<link href="#footnote-\1">\1</link>',
             text,
         )
-        text = self.linkify_urls(text, underline=self.underline_links, color=self.link_color)
+        # An adjacent code span must not be swallowed by a bare URL.
+        parts = (
+            re.split("(" + "|".join(map(re.escape, code_spans)) + ")", text)
+            if code_spans else [text]
+        )
+        text = "".join(
+            part if part in code_spans else self.linkify_urls(
+                part, underline=self.underline_links, color=self.link_color
+            )
+            for part in parts
+        )
+        for placeholder, markup in code_spans.items():
+            text = text.replace(placeholder, markup)
         return text, refs
 
     def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph | PageBreak:

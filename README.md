@@ -169,6 +169,18 @@ The compiler supports:
 - optional smart-quote rendering without changing the Markdown source
 - read-only legal-style and HTTP(S) URL validation before PDF generation
 
+### Literal inline code
+
+Use backticks for a literal filename, path, command, or other short code fragment, including inside footnotes and quotation-local footnotes:
+
+```markdown
+An attachment is named `records_2026_[final].csv`.[^file]
+
+[^file]: The exact filename is `records_2026_[final].csv` in `reports/2026/`.
+```
+
+Inline code is rendered in Courier at the surrounding paragraph's size. Its contents are not interpreted as emphasis, links, smart quotes, Markdown footnote citations, or `{{key}}` note-number placeholders. Backslash-escaped backticks appear as literal backticks rather than starting code, and matching runs of two or more backticks let a code span include backtick characters. Unmatched backticks remain visible.
+
 ### GitHub-flavored admonition blockquotes
 
 The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION`:
