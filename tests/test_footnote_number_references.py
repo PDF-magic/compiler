@@ -88,6 +88,54 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
         )
         self.assertEqual(refs, [])
 
+    def test_fenced_code_keeps_references_and_definitions_literal(self):
+        temp, renderer = self.renderer_for(
+            "Example.[^real]\n\n"
+            "```markdown\n{real} [^fake]\n[^fake]: Code only.\n```\n\n"
+            "[^real]: Real footnote.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        self.assertEqual(renderer.order, ["real"])
+        self.assertEqual(renderer.note_defs, {"real": "Real footnote."})
+        code_lines = [flowable.getPlainText() for flowable in renderer.build_story()
+                      if hasattr(flowable, "getPlainText")]
+        self.assertIn("{real} [^fake]", code_lines)
+        self.assertIn("[^fake]: Code only.", code_lines)
+
+    def test_long_backtick_and_tilde_fences_leave_code_untouched(self):
+        temp, renderer = self.renderer_for(
+            "Example.[^real]\n\n"
+            "````markdown\n{real}\n```\n[^fake]\n````\n\n"
+            "~~~python\n{real} [^also_fake]\n~~~\n\n"
+            "[^real]: Real footnote.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        self.assertEqual(renderer.order, ["real"])
+        code_lines = [flowable.getPlainText() for flowable in renderer.build_story()
+                      if hasattr(flowable, "getPlainText")]
+        self.assertIn("{real}", code_lines)
+        self.assertIn("[^fake]", code_lines)
+        self.assertIn("{real} [^also_fake]", code_lines)
+
+    def test_inline_code_does_not_resolve_or_assign_footnotes(self):
+        temp, renderer = self.renderer_for(
+            "Example `[^fake]`.[^real]\n\n[^real]: Real footnote.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        self.assertEqual(renderer.nums, {"real": 1})
+        rendered, refs = renderer.markdown_inline(
+            "See `{real}` and {real}; `[^real]` and [^real]."
+        )
+        self.assertEqual(
+            rendered,
+            'See {real} and <link href="#footnote-1">1</link>; '
+            '[^real] and <link href="#footnote-1"><super>1</super></link>.',
+        )
+        self.assertEqual(refs, [1])
+
     def test_footnote_citation_is_clickable(self):
         temp, renderer = self.renderer_for(
             """Alpha.[^ref-a]\n\n[^ref-a]: A.\n"""

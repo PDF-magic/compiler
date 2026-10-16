@@ -106,7 +106,7 @@ Elsewhere in the document, `{ref-a}` is replaced with a linked, baseline note nu
 _See supra note_ {ref-a}.
 ```
 
-If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{key}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{key}` is left visible rather than being assigned a number. The previous double-braced syntax (`{{key}}`) is no longer interpolated.
+If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{key}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{key}` is left visible rather than being assigned a number. The previous double-braced syntax (`{{key}}`) is no longer interpolated. References and citations inside fenced code blocks or inline code spans are shown literally and never influence footnote numbering.
 
 ## Command line
 
