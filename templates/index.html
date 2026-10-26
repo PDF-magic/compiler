@@ -258,7 +258,7 @@
   <div class="topbar">
     <div>
       <h1>PDF Compiler</h1>
-      <p class="intro">Configure one section at a time, then validate or render your PDF.</p>
+      <p class="intro">Configure one section at a time, then validate and export your PDF or editable Word document.</p>
     </div>
     <div class="action-group">
       <button id="export-config" class="secondary" type="button">Export config</button>
@@ -303,6 +303,14 @@
           </label>
           <label>Output filename
             <input name="output_name" value="document.pdf">
+          </label>
+          <label>Export format
+            <select id="output-format" name="output_format">
+              <option value="pdf">PDF (existing compiler)</option>
+              <option value="court_docx">Court pleading — Microsoft Word (.docx)</option>
+              <option value="federal_register_docx">Federal Register agency draft — Word (.docx)</option>
+            </select>
+            <small>Word exports are editable drafts. Check court-specific rules or the Office of the Federal Register's drafting requirements before submission.</small>
           </label>
           <label class="full">Or paste Markdown
             <small><code># Title</code> · <code>## Subtitle or section heading</code></small>
@@ -748,6 +756,18 @@
   });
 
   const form = document.getElementById('compiler-form');
+  const outputFormat = document.getElementById('output-format');
+  const isWord = () => outputFormat.value !== 'pdf';
+  const outputName = () => (form.elements.output_name.value || 'document')
+    .replace(/\.(?:pdf|docx)$/i, '') + (isWord() ? '.docx' : '.pdf');
+  function downloadWord(url) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = outputName();
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
   const linkColor = document.getElementById('link-color');
   const colorSwatches = [...document.querySelectorAll('.color-swatch')];
   function updateColorSwatches() {
@@ -793,7 +813,7 @@
     renderButton.disabled = !hasDocument();
     renderButton.classList.remove('ready');
     compileStatus.textContent = hasDocument()
-      ? 'Click Compile PDF to render with these settings.'
+      ? (isWord() ? 'Click Export Word to compile this editable document.' : 'Click Compile PDF to render with these settings.')
       : 'Upload a Markdown file or paste text in Document.';
   }
 
@@ -813,22 +833,23 @@
     const request = new AbortController();
     compileRequest = request;
     renderButton.disabled = true;
-    compileStatus.textContent = 'Compiling PDF…';
+    compileStatus.textContent = isWord() ? 'Compiling Word document…' : 'Compiling PDF…';
     try {
       const response = await fetch('/render', { method: 'POST', body: new FormData(form), signal: request.signal });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.error || 'Compilation failed. Check your document and settings.');
       }
-      if (!response.headers.get('content-type')?.includes('application/pdf')) {
-        throw new Error('The server did not return a PDF. Please try again.');
+      const expected = isWord() ? 'wordprocessingml.document' : 'application/pdf';
+      if (!response.headers.get('content-type')?.includes(expected)) {
+        throw new Error('The server did not return the selected format. Please try again.');
       }
       const pdf = await response.blob();
       if (version !== compileVersion || request.signal.aborted) return;
       preparedPdf = URL.createObjectURL(pdf);
       renderButton.disabled = false;
       renderButton.classList.add('ready');
-      compileStatus.textContent = 'PDF compiled. Click Compile PDF to reopen it.';
+      compileStatus.textContent = isWord() ? 'Word document compiled. Click Export Word to download again.' : 'PDF compiled. Click Compile PDF to reopen it.';
     } catch (error) {
       if (version !== compileVersion || request.signal.aborted) return;
       compileStatus.textContent = error.message;
@@ -837,20 +858,26 @@
     }
   }
 
+  outputFormat.addEventListener('change', () => {
+    form.elements.output_name.value = outputName();
+    renderButton.textContent = isWord() ? 'Export Word' : 'Compile PDF';
+  });
   form.addEventListener('input', invalidateCompilation);
   form.addEventListener('change', invalidateCompilation);
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (preparedPdf) {
-      window.open(preparedPdf, '_blank', 'noopener');
+      if (isWord()) downloadWord(preparedPdf);
+      else window.open(preparedPdf, '_blank', 'noopener');
       return;
     }
-    // Open during the click so the completed PDF is not blocked as a popup.
-    const preview = window.open('about:blank', '_blank');
+    // The PDF opens in a new tab, while Word triggers a download.
+    const preview = isWord() ? null : window.open('about:blank', '_blank');
     if (preview) preview.opener = null;
     await prepareCompilation();
     if (preparedPdf) {
-      if (preview && !preview.closed) preview.location.replace(preparedPdf);
+      if (isWord()) downloadWord(preparedPdf);
+      else if (preview && !preview.closed) preview.location.replace(preparedPdf);
     } else {
       preview?.close();
     }
