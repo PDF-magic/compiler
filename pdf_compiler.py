@@ -10,8 +10,11 @@ its OCC- and WhyDRS-specific paths and metadata.
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 import html
+import os
 import re
+import subprocess
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import weakref
@@ -47,6 +50,35 @@ ADMONITION_DEFAULT_COLORS = {
     "WARNING": "#B45309",
     "CAUTION": "#B42318",
 }
+
+
+@lru_cache(maxsize=1)
+def compiler_creator() -> str:
+    """Credit the running PDF Magic revision without changing document authorship."""
+    for name in ("PDF_MAGIC_COMPILER_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA", "GITHUB_SHA"):
+        sha = os.environ.get(name, "").strip()
+        if re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+            return f"PDF Magic Compiler ({sha[:7].lower()})"
+
+    # Only inspect Git when this module is the root of a real checkout. A
+    # parent application's repository would identify the wrong compiler.
+    checkout = Path(__file__).resolve().parent
+    if (checkout / ".git").exists():
+        try:
+            sha = subprocess.run(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            ).stdout.strip()
+            if re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+                return f"PDF Magic Compiler ({sha[:7].lower()})"
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
+
+    # Do not substitute today's upstream HEAD: the deployed code may differ.
+    return "PDF Magic Compiler"
 
 
 class RefParagraph(Paragraph):
@@ -1223,6 +1255,7 @@ class PdfRenderer:
 
         def draw(canvas, doc):
             nonlocal carry
+            canvas.setCreator(compiler_creator())
             if doc.page == 1:
                 self.draw_branding(canvas, doc)
 
