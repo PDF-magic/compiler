@@ -232,6 +232,43 @@ Quote-local footnotes render inside the quotation after its text and before the 
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
 
+## Microsoft Word exports for court and Federal Register drafts
+
+On the **Document** step, choose **Export format**. The existing PDF format
+remains the default. Two new options download editable .docx documents:
+
+- **Court pleading:** US Letter, one-inch margins, 14 pt Times New Roman,
+  double-spaced body, centered top-level headings, and footer page numbers.
+  Include the court, caption, docket/case number, title and signature directly
+  in the Markdown. Individual federal and state courts have different rules;
+  this is a starting point, not a court-specific certification.
+- **Federal Register agency draft:** US Letter, one-inch margins, 12 pt Times
+  New Roman, double-spaced body and bold preamble labels when the source
+  includes AGENCY:, ACTION:, SUMMARY:, DATES:, ADDRESSES:,
+  FOR FURTHER INFORMATION CONTACT:, or SUPPLEMENTARY INFORMATION:.
+  List numbers remain literal (not automatic numbering), links become
+  label plus plain-text URL (not clickable hyperlink objects), and document
+  core title/author/subject fields are cleared. It adds no automatic page
+  numbers or table-of-contents fields.
+
+Basic Markdown headings, paragraphs, bold/italic, lists, fenced code,
+blockquote text, sourced quotations, and link text are supported. Markdown
+footnote references are retained as numbered **editable endnote paragraphs**;
+they are not native Word footnotes. Unlike the full PDF engine, Word export
+does not yet recreate uploaded logos, handwritten signatures, movable
+letterhead elements, or specialized page-footnote layout. PDF outputs and
+their typography controls remain independent of Word export.
+
+**Federal Register agency manuscripts and public comment attachments are
+different types of submissions.** The Federal Register option is an unsigned
+draft for official agency publication; it does not file or digitally sign a
+document and is not a substitute for substantive and format review. For the
+current requirements see the [Office of the Federal Register Document
+Drafting Handbook](https://www.archives.gov/federal-register/write/ddh),
+2018 Edition, Revision 2.2, especially the rules for DOCX metadata,
+active hyperlinks and fields, auto-numbering, signatures, and headings.
+The responsible agency must approve and sign the completed document.
+
 ## Professional filing style
 
 Select **Professional filing** in the Typography preset selector for a restrained presentation inspired by [the reference SEC comment letter](https://www.sec.gov/comments/sr-occ-2025-801/srocc2025801-598095-1737722.pdf). It uses one-inch side margins, 12 pt Times body text with 1.5 line spacing, justified paragraphs with first-line indents, compact headings, 10.5 pt footnotes, plain inset quotations, and page numbers positioned inside the bottom margin. Letters without footnotes use the full printable page instead of reserving a note area.
