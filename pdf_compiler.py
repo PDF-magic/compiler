@@ -230,13 +230,34 @@ def extract_body(markdown: str, start_heading: str | None = None) -> str:
     return markdown[match.end() :].strip()
 
 
+def advance_code_fence(line: str, active: str | None) -> tuple[str | None, bool]:
+    """Track Markdown backtick/tilde fences, including longer closing markers."""
+    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+    if match is None:
+        return active, False
+    marker, remainder = match.groups()
+    if active is None:
+        if marker.startswith("`") and "`" in remainder:
+            return None, False
+        return marker, True
+    if marker[0] == active[0] and len(marker) >= len(active) and not remainder.strip():
+        return None, True
+    return active, False
+
+
 def extract_footnotes(markdown: str) -> tuple[str, dict[str, str]]:
     notes: dict[str, str] = {}
     body: list[str] = []
     lines = markdown.splitlines()
     index = 0
+    fence_marker: str | None = None
 
     while index < len(lines):
+        fence_marker, boundary = advance_code_fence(lines[index], fence_marker)
+        if boundary or fence_marker is not None:
+            body.append(lines[index])
+            index += 1
+            continue
         match = re.match(r"^\[\^([^\]]+)\]:\s*(.*)$", lines[index])
         if not match:
             body.append(lines[index])
@@ -264,23 +285,15 @@ def replace_signature_tags(markdown: str) -> tuple[str, int]:
     """Replace standalone ``[[signature]]`` tags outside fenced code."""
     output: list[str] = []
     count = 0
-    in_fence = False
     fence_marker: str | None = None
 
     for raw_line in markdown.splitlines():
-        stripped = raw_line.strip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            marker = stripped[:3]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = None
+        fence_marker, boundary = advance_code_fence(raw_line, fence_marker)
+        if boundary:
             output.append(raw_line)
             continue
 
-        if not in_fence and stripped.lower() == "[[signature]]":
+        if fence_marker is None and raw_line.strip().lower() == "[[signature]]":
             output.append(SIGNATURE_SENTINEL)
             count += 1
         else:
@@ -301,7 +314,8 @@ class PdfRenderer:
     url_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     bare_url_re = re.compile(r"https?://[^\s<]+")
     note_ref_re = re.compile(r"\[\^([^\]]+)\]")
-    note_number_ref_re = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+    note_number_ref_re = re.compile(r"(?<!\{)\{\s*([^{}]+?)\s*\}(?!\})")
+    inline_code_re = re.compile(r"(?<!`)(`+)(?!`)(.*?)\1(?!`)", re.DOTALL)
 
     def __init__(
         self,
@@ -838,9 +852,16 @@ class PdfRenderer:
         """Assign final note numbers from real footnote citations before rendering."""
         lines = self.body_text.splitlines()
         index = 0
+        fence_marker: str | None = None
         while index < len(lines):
+            fence_marker, boundary = advance_code_fence(lines[index], fence_marker)
+            if boundary or fence_marker is not None:
+                index += 1
+                continue
             if not lines[index].startswith(">"):
-                for match in self.note_ref_re.finditer(lines[index]):
+                for match in self.note_ref_re.finditer(
+                    self.inline_code_re.sub("", lines[index])
+                ):
                     self.note_number(match.group(1))
                 index += 1
                 continue
@@ -857,12 +878,12 @@ class PdfRenderer:
             )
             local_notes = self.quotation_local_notes(quote_lines) if is_quotation else {}
             for line in quote_lines:
-                for match in self.note_ref_re.finditer(line):
+                for match in self.note_ref_re.finditer(self.inline_code_re.sub("", line)):
                     if match.group(1) not in local_notes:
                         self.note_number(match.group(1))
 
     def interpolate_note_numbers(self, text: str, *, linked: bool = False) -> str:
-        """Replace ``{{key}}`` with an already-assigned footnote number."""
+        """Replace ``{key}`` with an already-assigned footnote number."""
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
@@ -910,6 +931,14 @@ class PdfRenderer:
 
     def markdown_inline(self, text: str, refs_on: bool = True) -> tuple[str, list[int]]:
         refs: list[int] = []
+        code_spans: dict[str, str] = {}
+
+        def protect_code(match: re.Match[str]) -> str:
+            token = f"@@PDFCODE{len(code_spans)}@@"
+            code_spans[token] = html.escape(match.group(2), quote=False)
+            return token
+
+        text = self.inline_code_re.sub(protect_code, text)
         if refs_on:
 
             def replace_ref(match):
@@ -943,7 +972,13 @@ class PdfRenderer:
             text,
         )
         text = self.linkify_urls(text, underline=self.underline_links, color=self.link_color)
+        for token, literal_code in code_spans.items():
+            text = text.replace(token, literal_code)
         return text, refs
+
+    def code_paragraph(self, text: str) -> RefParagraph:
+        """Render a fenced-code line literally, without Markdown substitutions."""
+        return RefParagraph(html.escape(text, quote=False), self.styles["BodyX"], [])
 
     def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph | PageBreak:
         if text.strip() == PAGE_BREAK_SENTINEL:
@@ -989,7 +1024,7 @@ class PdfRenderer:
         story = []
         paragraph_lines: list[str] = []
         quote_lines: list[str] = []
-        in_fence = False
+        fence_marker: str | None = None
         counts = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
 
         def flush_paragraph():
@@ -1036,14 +1071,14 @@ class PdfRenderer:
         for raw_line in self.body_text.splitlines():
             line = raw_line.rstrip()
 
-            if line.strip().startswith("```"):
+            fence_marker, boundary = advance_code_fence(line, fence_marker)
+            if boundary:
                 flush_paragraph()
                 flush_quote()
-                in_fence = not in_fence
                 continue
-            if in_fence:
+            if fence_marker is not None:
                 if line.strip():
-                    story.append(self.paragraph(line, self.styles["BodyX"]))
+                    story.append(self.code_paragraph(line))
                 continue
             if not line.strip():
                 flush_paragraph()
