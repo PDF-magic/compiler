@@ -109,7 +109,7 @@ def resolve_document_image(source: Path, reference: str, allowed_root: Path | No
     if not reference or "\\" in reference or "\x00" in reference:
         raise ValueError("Invalid Markdown image reference.")
     relative = PurePosixPath(reference)
-    if relative.is_absolute():
+    if relative.is_absolute() or any(part.startswith(".") and part not in {".", ".."} for part in relative.parts):
         raise ValueError("Markdown image references must stay inside the document folder.")
     if relative.suffix.lower() not in IMAGE_FORMATS:
         raise ValueError("Markdown images must refer to supported raster image files.")
