@@ -35,6 +35,7 @@ from reportlab.platypus import (
 
 from emoji_renderer import EmojiParagraph as Paragraph
 from page_breaks import PAGE_BREAK_SENTINEL, normalize_page_breaks
+from document_assets import resolve_document_image
 
 
 SIGNATURE_SENTINEL = "@@PDF_COMPILER_SIGNATURE_BLOCK@@"
@@ -1102,7 +1103,7 @@ class PdfRenderer:
             if image_match:
                 flush_paragraph()
                 flush_quote()
-                image_path = (self.source.parent / image_match.group(1)).resolve()
+                image_path = resolve_document_image(self.source, image_match.group(1))
                 if image_path.exists():
                     with PILImage.open(image_path) as image:
                         width, height = image.size
