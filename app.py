@@ -182,10 +182,23 @@ def index():
 
 @app.post("/validate")
 def validate_markdown():
-    markdown, error, _ = submitted_markdown()
+    markdown, error, source_relative = submitted_markdown()
     if error:
         return jsonify({"valid": False, "error": error, "issues": []}), 400
 
+    # Preflight must not report success for unsafe or unreadable attachments.
+    with TemporaryDirectory(prefix="pdf-compiler-validate-") as temp:
+        root = Path(temp)
+        source = root / (source_relative or Path("document.md"))
+        try:
+            save_document_images(
+                request.files.getlist("document_files"),
+                request.files.getlist("inline_images"),
+                root,
+                source,
+            )
+        except ValueError as exc:
+            return jsonify({"valid": False, "error": str(exc), "issues": []}), 400
     issues = preflight_issues(markdown or "")
     return jsonify({"valid": not issues, "issues": issues})
 
