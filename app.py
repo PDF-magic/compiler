@@ -358,6 +358,14 @@ def render_pdf():
                 hide_url_scheme=truthy("hide_url_scheme"),
                 link_color=link_color,
             )
+            # For directory uploads, permit sibling directories inside the
+            # selected folder, but never paths outside that folder.
+            renderer.allowed_image_root = (
+                root / source_relative.parts[0]
+                if request.files.getlist("document_files") and source_relative
+                and len(source_relative.parts) > 1
+                else root
+            )
             renderer.build()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
