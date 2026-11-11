@@ -28,6 +28,7 @@ from reportlab.platypus import (
 )
 
 from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, roman
+from document_assets import resolve_document_image
 from emoji_renderer import EmojiParagraph as Paragraph
 
 
@@ -725,7 +726,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
             if image_match:
                 flush_paragraph()
                 flush_quote()
-                image_path = (self.source.parent / image_match.group(1)).resolve()
+                image_path = resolve_document_image(self.source, image_match.group(1))
                 if image_path.exists():
                     with PILImage.open(image_path) as image:
                         width, height = image.size
