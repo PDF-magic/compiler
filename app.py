@@ -235,11 +235,13 @@ def render_pdf():
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+        internal_assets = root / ".compiler-internal"
+        internal_assets.mkdir()
         logo = None
         logo_upload = request.files.get("logo")
         if logo_upload and logo_upload.filename:
             logo_name = secure_filename(logo_upload.filename) or "logo.png"
-            logo = root / logo_name
+            logo = internal_assets / logo_name
             logo_upload.save(logo)
         elif preset:
             logo = LETTERHEAD_PRESETS[preset]
@@ -247,14 +249,14 @@ def render_pdf():
                 return jsonify({"error": f"Letterhead preset asset is missing: {preset}"}), 500
             # Render the bundled SVG for the image pipeline; no raster asset is required.
             with pymupdf.open(logo) as artwork:
-                logo = root / "preset-logo.png"
+                logo = internal_assets / "preset-logo.png"
                 artwork[0].get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=True).save(logo)
 
         signature = None
         signature_upload = request.files.get("signature")
         if signature_upload and signature_upload.filename:
             signature_name = secure_filename(signature_upload.filename) or "signature.png"
-            signature = root / f"signature-{signature_name}"
+            signature = internal_assets / f"signature-{signature_name}"
             signature_upload.save(signature)
 
         try:
