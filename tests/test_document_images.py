@@ -98,6 +98,20 @@ class DocumentImageTests(unittest.TestCase):
                 response = self.render(markdown="# Test", inline_images=(BytesIO(payload), filename))
                 self.assertEqual(response.status_code, 400)
 
+    def test_preflight_rejects_script_uploads(self):
+        response = self.client.post("/validate", data={
+            "markdown": "# Safe",
+            "inline_images": (BytesIO(b'<svg onload="alert(1)"/>'), "attack.svg"),
+        }, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["valid"])
+
+    def test_raw_script_markup_is_not_executed_or_embedded_as_code(self):
+        response = self.render(markdown="# Safe\n\n<script>alert(1)</script>\n")
+        self.assertEqual(response.status_code, 200)
+        with pymupdf.open(stream=response.data, filetype="pdf") as pdf:
+            self.assertIn("<script>", pdf[0].get_text())
+
     def test_reject_traversal_and_markup_filenames(self):
         for filename in ("../photo.png", "/tmp/photo.png", "photo<script>.png", "C:\\temp\\photo.png"):
             with self.subTest(filename=filename):
