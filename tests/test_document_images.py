@@ -45,6 +45,27 @@ class DocumentImageTests(unittest.TestCase):
         ])
         self.assert_embeds_image(response)
 
+    def test_markdown_in_nested_folder_can_reference_sibling_images(self):
+        response = self.render(document_files=[
+            (BytesIO(b"# Evidence\n\n![Photo](../images/photo.png)\n"), "packet/docs/letter.md"),
+            (BytesIO(png_bytes()), "packet/images/photo.png"),
+        ])
+        self.assert_embeds_image(response)
+
+    def test_folder_upload_rejects_script_injection(self):
+        response = self.render(document_files=[
+            (BytesIO(b"# Report\n"), "packet/report.md"),
+            (BytesIO(b'<script>alert(1)</script>'), "packet/scripts/attack.html"),
+        ])
+        self.assertEqual(response.status_code, 400)
+
+    def test_nested_folder_cannot_escape_its_document_root(self):
+        response = self.render(document_files=[
+            (BytesIO(b"# Evidence\n\n![Photo](../../outside.png)\n"), "packet/docs/letter.md"),
+            (BytesIO(png_bytes()), "packet/images/photo.png"),
+        ])
+        self.assertEqual(response.status_code, 400)
+
     def test_folder_markdown_preflight(self):
         response = self.client.post("/validate", data={
             "document_files": [
