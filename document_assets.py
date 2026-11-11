@@ -104,17 +104,20 @@ def save_document_images(folder_uploads, inline_uploads, root: Path, source: Pat
         upload.save(destination)
 
 
-def resolve_document_image(source: Path, reference: str) -> Path:
-    """Keep Markdown image references within the document directory."""
+def resolve_document_image(source: Path, reference: str, allowed_root: Path | None = None) -> Path:
+    """Keep Markdown image references inside the selected document root."""
     if not reference or "\\" in reference or "\x00" in reference:
         raise ValueError("Invalid Markdown image reference.")
     relative = PurePosixPath(reference)
-    if relative.is_absolute() or any(part == ".." for part in relative.parts):
+    if relative.is_absolute():
         raise ValueError("Markdown image references must stay inside the document folder.")
     if relative.suffix.lower() not in IMAGE_FORMATS:
         raise ValueError("Markdown images must refer to supported raster image files.")
-    root = source.parent.resolve()
-    image = (root / Path(*relative.parts)).resolve()
+    root = (allowed_root or source.parent).resolve()
+    source_dir = source.parent.resolve()
+    if not source_dir.is_relative_to(root):
+        raise ValueError("Markdown source is outside the allowed document root.")
+    image = (source_dir / Path(*relative.parts)).resolve()
     if not image.is_relative_to(root):
         raise ValueError("Markdown image reference escapes the document folder.")
     return image
