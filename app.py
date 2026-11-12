@@ -27,6 +27,7 @@ from configured_renderer import (
 )
 from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
+from pdfa4_export import render_pdf as render_with_format
 from legal_style_validator import validate_legal_style
 from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
                                  PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
@@ -335,8 +336,11 @@ def render_pdf():
                 hide_url_scheme=truthy("hide_url_scheme"),
                 link_color=link_color,
             )
-            renderer.build()
-        except ValueError as exc:
+            output_format = request.form.get("pdf_format", "standard")
+            if output_format not in {"standard", "pdfa4"}:
+                return jsonify({"error": "Unsupported PDF output format."}), 400
+            render_with_format(renderer, pdfa4=output_format == "pdfa4")
+        except (ValueError, RuntimeError) as exc:
             return jsonify({"error": str(exc)}), 400
         payload = BytesIO(output.read_bytes())
 
