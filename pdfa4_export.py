@@ -106,14 +106,14 @@ def _to_pdfa4(source: Path, destination: Path) -> None:
                 annotation["/F"] = flags
 
         # PDF/A-4 identifies itself by part=4 only (there is no A/B/U suffix).
-        with pdf.open_metadata(set_pikepdf_as_editor=False, sync_docinfo=False) as xmp:
+        with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as xmp:
             xmp["pdfaid:part"] = "4"
+            xmp["pdfaid:rev"] = "2020"
             if "pdfaid:conformance" in xmp:
                 del xmp["pdfaid:conformance"]
 
         # PDF 2.0 relies on XMP instead of the deprecated document-info dict.
-        if pdf.docinfo:
-            del pdf.docinfo
+        del pdf.docinfo
         pdf.save(destination, force_version="2.0")
 
 
