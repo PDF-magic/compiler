@@ -108,7 +108,7 @@ class Pdfa4ExportTests(unittest.TestCase):
             "markdown": "## Filing\n\nOrdinary content.",
             "pdf_format": "standard",
         })
-        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:500])
+        self.assertEqual(response.status_code, 200, response.data[:500])
         self.assertIn("application/pdf", response.content_type)
         self.assertTrue(response.data.startswith(b"%PDF-1."))
 
@@ -119,7 +119,7 @@ class Pdfa4ExportTests(unittest.TestCase):
             "markdown": "## Filing\n\nA [link](https://example.org) and section § 7502.",
             "pdf_format": "pdfa4",
         })
-        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:500])
+        self.assertEqual(response.status_code, 200, response.data[:500])
         self.assertIn("application/pdf", response.content_type)
         self.assertTrue(response.data.startswith(b"%PDF-2.0"))
 
