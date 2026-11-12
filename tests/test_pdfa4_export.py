@@ -95,6 +95,34 @@ class Pdfa4ExportTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "parseable"):
                 _validate_pdfa4(Path("file.pdf"), "verapdf")
 
+    def test_web_form_exposes_optional_pdfa4(self):
+        from app import app
+        response = app.test_client().get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'value="standard" selected', response.data)
+        self.assertIn(b'value="pdfa4"', response.data)
+
+    def test_default_web_render_remains_standard_pdf(self):
+        from app import app
+        response = app.test_client().post("/render", data={
+            "markdown": "## Filing\n\nOrdinary content.",
+            "pdf_format": "standard",
+        })
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:500])
+        self.assertIn("application/pdf", response.content_type)
+        self.assertTrue(response.data.startswith(b"%PDF-1."))
+
+    @unittest.skipUnless(shutil.which("verapdf"), "Requires locally installed veraPDF")
+    def test_web_pdfa4_export_is_independently_validated(self):
+        from app import app
+        response = app.test_client().post("/render", data={
+            "markdown": "## Filing\n\nA [link](https://example.org) and section § 7502.",
+            "pdf_format": "pdfa4",
+        })
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:500])
+        self.assertIn("application/pdf", response.content_type)
+        self.assertTrue(response.data.startswith(b"%PDF-2.0"))
+
     @unittest.skipUnless(shutil.which("verapdf"), "Requires locally installed veraPDF")
     def test_real_markdown_export_passes_verapdf_4(self):
         try:
