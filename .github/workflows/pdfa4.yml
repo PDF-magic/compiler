@@ -5,6 +5,8 @@ on:
     paths:
       - "pdfa4_export.py"
       - "pdf_compiler.py"
+      - "app.py"
+      - "templates/index.html"
       - "configured_renderer.py"
       - "first_page_layout.py"
       - "tests/test_pdfa4_export.py"
@@ -15,6 +17,8 @@ on:
     paths:
       - "pdfa4_export.py"
       - "pdf_compiler.py"
+      - "app.py"
+      - "templates/index.html"
       - "tests/test_pdfa4_export.py"
       - "requirements.txt"
       - ".github/workflows/pdfa4.yml"
