@@ -65,8 +65,16 @@ def _embedded_fonts():
     originals = {name: pdfmetrics._fonts.get(name) for name in _FONTS}
     faces = dict(pdfmetrics._dynFaceNames)
     try:
+        # registerFont silently skips names already present in some ReportLab
+        # versions (notably the Base 14). Replace the registry entries directly.
+        # Reuse one TTFont object per physical font face to avoid duplicate
+        # ToUnicode CMap object names when aliases share a fallback font.
+        by_file = {}
         for name, alternatives in _FONTS.items():
-            pdfmetrics.registerFont(TTFont(name, str(_font_file(alternatives))))
+            path = str(_font_file(alternatives))
+            if path not in by_file:
+                by_file[path] = TTFont(name, path)
+            pdfmetrics._fonts[name] = by_file[path]
         yield
     finally:
         for name, original in originals.items():
