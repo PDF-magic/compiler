@@ -107,6 +107,7 @@ def _to_pdfa4(source: Path, destination: Path) -> None:
 
         # PDF/A-4 identifies itself by part=4 only (there is no A/B/U suffix).
         with pdf.open_metadata(set_pikepdf_as_editor=False, update_docinfo=False) as xmp:
+            xmp.load_from_docinfo(pdf.docinfo)
             xmp["pdfaid:part"] = "4"
             xmp["pdfaid:rev"] = "2020"
             if "pdfaid:conformance" in xmp:
