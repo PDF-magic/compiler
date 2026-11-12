@@ -63,6 +63,7 @@ def _embedded_fonts():
     # ReportLab's font registry is process-global. Every call to render_pdf
     # takes the same lock, including ordinary PDF exports, avoiding races.
     originals = {name: pdfmetrics._fonts.get(name) for name in _FONTS}
+    faces = dict(pdfmetrics._dynFaceNames)
     try:
         for name, alternatives in _FONTS.items():
             pdfmetrics.registerFont(TTFont(name, str(_font_file(alternatives))))
@@ -73,6 +74,8 @@ def _embedded_fonts():
                 pdfmetrics._fonts.pop(name, None)
             else:
                 pdfmetrics._fonts[name] = original
+        pdfmetrics._dynFaceNames.clear()
+        pdfmetrics._dynFaceNames.update(faces)
 
 
 def _to_pdfa4(source: Path, destination: Path) -> None:
@@ -119,10 +122,13 @@ def _to_pdfa4(source: Path, destination: Path) -> None:
 
 
 def _validate_pdfa4(path: Path, command: str) -> None:
-    result = subprocess.run(
-        [command, "--format", "xml", "-f", "4", str(path)],
-        capture_output=True, text=True, timeout=120, check=False,
-    )
+    try:
+        result = subprocess.run(
+            [command, "--format", "xml", "-f", "4", str(path)],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("veraPDF could not validate the PDF/A-4 output.") from exc
     try:
         report = ET.fromstring(result.stdout)
     except ET.ParseError as exc:
