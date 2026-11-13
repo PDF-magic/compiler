@@ -3,10 +3,9 @@
   "framework": "flask",
   "buildCommand": null,
   "outputDirectory": null,
-  "installCommand": "python -m pip install -r requirements.txt",
   "functions": {
     "app.py": {
-      "excludeFiles": "{tests/**}"
+      "excludeFiles": "{tests/**,.github/**,**/__pycache__/**,**/*.pyc}"
     }
   }
 }

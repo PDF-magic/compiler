@@ -7,6 +7,10 @@ from io import BytesIO
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+import json
 
 from flask import Flask, jsonify, render_template, request, send_file
 import pymupdf
@@ -17,13 +21,17 @@ from configured_renderer import (
     IMAGE_TREATMENTS,
     PAGE_NUMBER_STYLES,
     SECTION_NUMBERING_STYLES,
+    FOOTNOTE_PLACEMENTS,
+    LICENSE_PRESETS,
     LetterSettings,
 )
-from first_page_layout import FirstPagePdfRenderer
-from pdf_compiler import LINK_COLOR
+from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
+from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from legal_style_validator import validate_legal_style
-from typography_renderer import TypographySettings
+from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
+                                 PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
 from url_validator import validate_urls
+from word_export import WORD_PROFILES, build_word_document
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
@@ -34,12 +42,35 @@ LETTERHEAD_PRESETS = {
 
 
 def truthy(name: str) -> bool:
-    return request.form.get(name) in {"1", "true", "on", "yes"}
+    return any(
+        value in {"1", "true", "on", "yes"}
+        for value in request.form.getlist(name)
+    )
 
 
 def form_float(name: str, default: float) -> float:
     value = request.form.get(name, "").strip()
     return default if not value else float(value)
+
+
+PDF_METADATA_KEYS = ("title", "author", "subject", "keywords")
+
+
+def submitted_previous_pdf_metadata() -> tuple[dict[str, str], str | None]:
+    upload = request.files.get("previous_pdf")
+    if not upload or not upload.filename:
+        return {}, None
+
+    try:
+        with pymupdf.open(stream=upload.read(), filetype="pdf") as previous_pdf:
+            metadata = previous_pdf.metadata or {}
+    except (pymupdf.FileDataError, RuntimeError, ValueError):
+        return {}, "Previous PDF must be a readable PDF."
+
+    return {
+        key: str(metadata.get(key) or "").strip()
+        for key in PDF_METADATA_KEYS
+    }, None
 
 
 def submitted_markdown() -> tuple[str | None, str | None]:
@@ -68,19 +99,65 @@ def preflight_issues(markdown: str) -> list[dict[str, object]]:
     return issues
 
 
+def latest_public_github_commit(repository: str, source_path: str = "") -> str:
+    """Resolve the public default-branch revision for a repo or a specific file."""
+    if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("GitHub repository must be in owner/repository format.")
+    owner, name = repository.split("/")
+    if name in {".", ".."}:
+        raise ValueError("Invalid GitHub repository name.")
+    if any(part in {".", ".."} for part in source_path.split("/")):
+        raise ValueError("GitHub source path cannot contain . or .. segments.")
+    params = {"per_page": 1}
+    if source_path.strip("/"):
+        params["path"] = source_path.strip("/")
+    url = f"https://api.github.com/repos/{owner}/{name}/commits?{urlencode(params)}"
+    req = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "PDF-Compiler"})
+    try:
+        with urlopen(req, timeout=6) as response:
+            entries = json.load(response)
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
+        raise ValueError(
+            "Could not look up the latest public GitHub commit. Paste its SHA manually, or check the repository and path."
+        ) from exc
+    if not isinstance(entries, list) or not entries or not isinstance(entries[0], dict):
+        raise ValueError("No public commits found for that repository and source path.")
+    sha = entries[0].get("sha", "")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+        raise ValueError("GitHub did not return a valid commit SHA.")
+    return sha
+
+
 @app.get("/")
 def index():
     page = render_template(
         "index.html",
+        render_styles=RENDER_STYLES,
+        presentation_controls=PRESENTATION_CONTROLS,
+        presentation_toggles=PRESENTATION_TOGGLES,
+        typography_defaults=TypographySettings(),
+        render_presets={style: {
+            name: (getattr(TypographySettings.for_style(style), name) * 100
+                   if name == "blockquote_background_opacity"
+                   else getattr(TypographySettings.for_style(style), name))
+            for name in PROFESSIONAL_TYPOGRAPHY
+        } for style in RENDER_STYLES},
         date_formats=DATE_FORMATS,
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
         section_numbering_styles=SECTION_NUMBERING_STYLES,
+        footnote_placements=FOOTNOTE_PLACEMENTS,
+        license_presets=LICENSE_PRESETS,
+        admonition_types=ADMONITION_TYPES,
+        admonition_default_colors=ADMONITION_DEFAULT_COLORS,
         today=date.today().isoformat(),
     )
     return page.replace(
         "</body>",
-        '  <script src="/static/letterhead-presets.js"></script>\n</body>',
+        '  <script src="/static/letterhead-presets.js"></script>\n'
+        '  <script src="/static/plain-link-options.js"></script>\n'
+        '  <script src="/static/render-styles.js"></script>\n'
+        '  <script src="/static/configuration.js"></script>\n</body>',
         1,
     )
 
@@ -100,6 +177,35 @@ def render_pdf():
     markdown, error = submitted_markdown()
     if error:
         return jsonify({"error": error}), 400
+
+    output_format = request.form.get("output_format", "pdf")
+    if output_format not in {"pdf", *WORD_PROFILES}:
+        return jsonify({"error": "Unknown output format."}), 400
+    if output_format != "pdf":
+        try:
+            payload = build_word_document(
+                markdown or "",
+                profile=output_format,
+                title=request.form.get("title", "").strip(),
+                author=request.form.get("author", "").strip(),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        filename = secure_filename(request.form.get("output_name", "document.docx")) or "document.docx"
+        filename = re.sub(r"\.(?:pdf|docx)$", "", filename, flags=re.I) + ".docx"
+        return send_file(
+            BytesIO(payload),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            download_name=filename,
+            as_attachment=True,
+        )
+
+    previous_metadata, error = submitted_previous_pdf_metadata()
+    if error:
+        return jsonify({"error": error}), 400
+
+    def metadata_value(name: str) -> str | None:
+        return request.form.get(name, "").strip() or previous_metadata.get(name) or None
 
     preset = request.form.get("letterhead_preset", "").strip()
     if preset and preset not in LETTERHEAD_PRESETS:
@@ -142,59 +248,120 @@ def render_pdf():
             link_color = request.form.get("link_color", LINK_COLOR).strip()
             if not re.fullmatch(r"#[0-9a-fA-F]{6}", link_color):
                 raise ValueError("Link color must be a six-digit hex color, such as #2E732E.")
+            draft_footer = truthy("draft_footer")
+            latest_commit = request.form.get("latest_commit", "").strip() if draft_footer else ""
+            if draft_footer and not latest_commit:
+                repository = request.form.get("source_repository", "").strip()
+                if not repository:
+                    raise ValueError("Enter a commit SHA or a public GitHub repository for the draft footer.")
+                latest_commit = latest_public_github_commit(
+                    repository, request.form.get("source_path", "").strip()
+                )
+            letterhead_layout = parse_letterhead_layout(request.form.get("letterhead_layout", ""))
             settings = LetterSettings(
                 show_date=truthy("show_date"),
                 date_format=request.form.get("date_format", "month_day_year"),
                 custom_date_format=request.form.get("custom_date_format", "%B %d, %Y"),
                 date_value=request.form.get("date_value") or None,
                 submission_subtitle=request.form.get("submission_subtitle", "").strip(),
+                quote_number=request.form.get("quote_number", "").strip(),
                 addressee=request.form.get("addressee", "").strip(),
                 addressee_box=truthy("addressee_box"),
                 logo_treatment=request.form.get("logo_treatment", "preserve"),
                 first_page_header=request.form.get("first_page_header", "").strip(),
                 remaining_page_header=request.form.get("remaining_page_header", "").strip(),
                 page_number_style=request.form.get("page_number_style", "none"),
+                draft_footer=draft_footer,
+                draft_reference=request.form.get("draft_reference", "").strip() if draft_footer else "",
+                latest_commit=latest_commit,
                 include_toc=truthy("include_toc"),
                 section_numbering=request.form.get("section_numbering", "legal"),
+                footnote_placement=request.form.get("footnote_placement", "page"),
+                license_preset=request.form.get("license_preset", "none"),
+                license_subtitle=request.form.get("license_subtitle", "").strip(),
             )
+            render_style = request.form.get("render_style", "classic")
+            defaults = TypographySettings.for_style(render_style)
             typography = TypographySettings(
-                body_font_size=form_float("body_font_size", 12.0),
-                line_spacing=form_float("line_spacing", 1.3),
-                h1_font_size=form_float("h1_font_size", 16.5),
-                h2_font_size=form_float("h2_font_size", 13.7),
-                h3_font_size=form_float("h3_font_size", 12.2),
-                h4_font_size=form_float("h4_font_size", 11.0),
-                footnote_font_size=form_float("footnote_font_size", 8.8),
-                toc_title_font_size=form_float("toc_title_font_size", 14.0),
-                toc_entry_font_size=form_float("toc_entry_font_size", 9.5),
-                wordmark_font_size=form_float("wordmark_font_size", 18.0),
-                date_font_size=form_float("date_font_size", 10.5),
-                subtitle_font_size=form_float("subtitle_font_size", 9.5),
-                header_font_size=form_float("header_font_size", 9.5),
-                page_number_font_size=form_float("page_number_font_size", 8.5),
+                render_style=render_style,
+                body_alignment=request.form.get("body_alignment", defaults.body_alignment),
+                **{name: form_float(name, getattr(defaults, name)) for name in PRESENTATION_CONTROLS},
+                **{name: truthy(name) if name in request.form else getattr(defaults, name)
+                   for name in PRESENTATION_TOGGLES},
+                body_font_size=form_float("body_font_size", defaults.body_font_size),
+                line_spacing=form_float("line_spacing", defaults.line_spacing),
+                blockquote_corner_radius=form_float("blockquote_corner_radius", defaults.blockquote_corner_radius),
+                blockquote_color=request.form.get("blockquote_color", "").strip(),
+                blockquote_background_color=request.form.get(
+                    "blockquote_background_color", ""
+                ).strip(),
+                blockquote_background_opacity=(
+                    form_float("blockquote_background_opacity", defaults.blockquote_background_opacity * 100) / 100.0
+                ),
+                blockquote_border=truthy("blockquote_border"),
+                blockquote_border_width=form_float("blockquote_border_width", defaults.blockquote_border_width),
+                admonitions_enabled=(
+                    "admonitions_enabled" not in request.form
+                    or truthy("admonitions_enabled")
+                ),
+                admonition_headers={
+                    kind: request.form.get(
+                        f"admonition_{kind.lower()}_header", ""
+                    ).strip()
+                    for kind in ADMONITION_TYPES
+                },
+                admonition_colors={
+                    kind: request.form.get(
+                        f"admonition_{kind.lower()}_color",
+                        ADMONITION_DEFAULT_COLORS[kind],
+                    ).strip()
+                    for kind in ADMONITION_TYPES
+                },
+                admonition_indents={
+                    kind: form_float(f"admonition_{kind.lower()}_indent", 18.0)
+                    for kind in ADMONITION_TYPES
+                },
+                h1_font_size=form_float("h1_font_size", defaults.h1_font_size),
+                h2_font_size=form_float("h2_font_size", defaults.h2_font_size),
+                h3_font_size=form_float("h3_font_size", defaults.h3_font_size),
+                h4_font_size=form_float("h4_font_size", defaults.h4_font_size),
+                footnote_font_size=form_float("footnote_font_size", defaults.footnote_font_size),
+                toc_title_font_size=form_float("toc_title_font_size", defaults.toc_title_font_size),
+                toc_entry_font_size=form_float("toc_entry_font_size", defaults.toc_entry_font_size),
+                wordmark_font_size=form_float("wordmark_font_size", defaults.wordmark_font_size),
+                date_font_size=form_float("date_font_size", defaults.date_font_size),
+                subtitle_font_size=form_float("subtitle_font_size", defaults.subtitle_font_size),
+                header_font_size=form_float("header_font_size", defaults.header_font_size),
+                page_number_font_size=form_float("page_number_font_size", defaults.page_number_font_size),
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
         output = root / "output.pdf"
-        renderer = FirstPagePdfRenderer(
-            source,
-            output,
-            settings=settings,
-            typography=typography,
-            logo=logo,
-            signature=signature,
-            wordmark=request.form.get("wordmark", "").strip() or None,
-            visible_document_title=request.form.get("document_title", "").strip() or None,
-            title=request.form.get("title", "").strip() or None,
-            author=request.form.get("author", "").strip() or None,
-            subject=request.form.get("subject", "").strip() or None,
-            keywords=request.form.get("keywords", "").strip() or None,
-            smart_quotes=truthy("smart_quotes"),
-            underline_links=truthy("underline_links"),
-            link_color=link_color,
-        )
-        renderer.build()
+        try:
+            renderer = FirstPagePdfRenderer(
+                source,
+                output,
+                settings=settings,
+                typography=typography,
+                logo=logo,
+                signature=signature,
+                wordmark=request.form.get("wordmark", "").strip() or None,
+                visible_document_title=request.form.get("document_title", "").strip() or None,
+                letterhead_layout=letterhead_layout,
+                title=metadata_value("title"),
+                author=metadata_value("author"),
+                subject=metadata_value("subject"),
+                keywords=metadata_value("keywords"),
+                smart_quotes=truthy("smart_quotes"),
+                quote_inline_number_footnotes=truthy("quote_inline_number_footnotes"),
+                underline_links=truthy("underline_links"),
+                hide_url_scheme=truthy("hide_url_scheme"),
+                link_color=link_color,
+            )
+            renderer.build()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         payload = BytesIO(output.read_bytes())
 
     filename = secure_filename(request.form.get("output_name", "document.pdf")) or "document.pdf"
