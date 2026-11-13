@@ -131,8 +131,8 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
         )
         self.assertEqual(
             rendered,
-            'See {real} and <link href="#footnote-1">1</link>; '
-            '[^real] and <link href="#footnote-1"><super>1</super></link>.',
+            'See <font name="Courier">{real}</font> and <link href="#footnote-1">1</link>; '
+            '<font name="Courier">[^real]</font> and <link href="#footnote-1"><super>1</super></link>.',
         )
         self.assertEqual(refs, [1])
 
