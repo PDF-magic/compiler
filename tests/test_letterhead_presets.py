@@ -34,6 +34,25 @@ class LetterheadPresetTests(unittest.TestCase):
         with pymupdf.open(stream=response.data, filetype="pdf") as pdf:
             self.assertTrue(pdf[0].get_images())
 
+    def test_blocktransfer_preset_asset_is_renderable(self):
+        svg = LETTERHEAD_PRESETS["blocktransfer"]
+        self.assertEqual(svg.suffix, ".svg")
+        self.assertTrue(svg.exists())
+        with pymupdf.open(svg) as artwork:
+            self.assertGreater(artwork[0].rect.width, artwork[0].rect.height)
+            pixmap = artwork[0].get_pixmap(alpha=True)
+            self.assertTrue(any(pixmap.samples[3::4]))
+
+    def test_blocktransfer_preset_renders_pdf(self):
+        response = self.client.post(
+            "/render",
+            data={"markdown": "# Test\n\nBlockTransfer letterhead.", "letterhead_preset": "blocktransfer"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/pdf")
+        with pymupdf.open(stream=response.data, filetype="pdf") as pdf:
+            self.assertTrue(pdf[0].get_images())
+
     def test_custom_upload_overrides_svg_preset(self):
         logo = BytesIO()
         Image.new("RGB", (20, 10), "blue").save(logo, format="PNG")
@@ -41,7 +60,7 @@ class LetterheadPresetTests(unittest.TestCase):
         with patch("app.pymupdf.open") as open_svg:
             response = self.client.post(
                 "/render",
-                data={"markdown": "# Test", "letterhead_preset": "whydrs", "logo": (logo, "logo.png")},
+                data={"markdown": "# Test", "letterhead_preset": "blocktransfer", "logo": (logo, "logo.png")},
             )
         self.assertEqual(response.status_code, 200)
         open_svg.assert_not_called()

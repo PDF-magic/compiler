@@ -1,4 +1,4 @@
-"""Small web UI for configuring, validating, and rendering PDFs."""
+"""Small web UI for configuring, validating, formatting, and rendering PDFs."""
 
 from __future__ import annotations
 
@@ -27,12 +27,14 @@ from configured_renderer import (
     LetterSettings,
 )
 from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
+from emoji_renderer import EMOJI_STYLES, emoji_preview, validate_emoji_style
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from pdfa4_export import render_pdf as render_with_format
 from legal_style_validator import validate_legal_style
 from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
                                  PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
 from url_validator import validate_urls
+from markdown_formatter import format_markdown
 from word_export import WORD_PROFILES, build_word_document
 
 app = Flask(__name__)
@@ -40,6 +42,7 @@ app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
 LETTERHEAD_PRESETS = {
     "whydrs": Path(app.root_path) / "static" / "letterheads" / "whydrs-logo.svg",
+    "blocktransfer": Path(app.root_path) / "static" / "letterheads" / "blocktransfer-logo.svg",
 }
 
 
@@ -109,6 +112,18 @@ def submitted_markdown() -> tuple[str | None, str | None, Path | None]:
     return None, "Upload a Markdown file or folder, or paste Markdown text.", None
 
 
+def formatted_markdown_filename() -> str:
+    source_upload = request.files.get("source")
+    if source_upload and source_upload.filename:
+        source_name = secure_filename(source_upload.filename) or "document.md"
+        stem = Path(source_name).stem or "document"
+        suffix = Path(source_name).suffix.lower()
+        if suffix not in {".md", ".markdown"}:
+            suffix = ".md"
+        return f"{stem}-formatted{suffix}"
+    return "document-formatted.md"
+
+
 def preflight_issues(markdown: str) -> list[dict[str, object]]:
     """Run read-only document validation and return UI-ready issues."""
     issues: list[dict[str, object]] = []
@@ -162,6 +177,7 @@ def index():
                    else getattr(TypographySettings.for_style(style), name))
             for name in PROFESSIONAL_TYPOGRAPHY
         } for style in RENDER_STYLES},
+        emoji_styles=EMOJI_STYLES,
         date_formats=DATE_FORMATS,
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
@@ -177,9 +193,27 @@ def index():
         '  <script src="/static/letterhead-presets.js"></script>\n'
         '  <script src="/static/plain-link-options.js"></script>\n'
         '  <script src="/static/render-styles.js"></script>\n'
-        '  <script src="/static/configuration.js"></script>\n</body>',
+        '  <script src="/static/configuration.js"></script>\n'
+        '  <script src="/static/emoji-styles.js"></script>\n'
+        '  <script src="/static/metadata-inheritance.js"></script>\n</body>',
         1,
     )
+
+
+@app.post("/emoji-preview")
+def preview_emoji_style():
+    selected = request.form.get("emoji_style", "twemoji")
+    uploaded = request.files.get("emoji_pack")
+    try:
+        with TemporaryDirectory(prefix="pdf-emoji-preview-") as temp:
+            pack = None
+            if selected != "twemoji" and uploaded and uploaded.filename:
+                pack = Path(temp) / "style.zip"
+                uploaded.save(pack)
+            content = emoji_preview(selected, pack)
+        return send_file(BytesIO(content), mimetype="image/png")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @app.post("/validate")
@@ -203,6 +237,22 @@ def validate_markdown():
             return jsonify({"valid": False, "error": str(exc), "issues": []}), 400
     issues = preflight_issues(markdown or "")
     return jsonify({"valid": not issues, "issues": issues})
+
+
+@app.post("/format")
+def format_markdown_source():
+    markdown, error, _source_relative = submitted_markdown()
+    if error:
+        return jsonify({"error": error}), 400
+
+    formatted = format_markdown(markdown or "")
+    payload = BytesIO(formatted.encode("utf-8"))
+    return send_file(
+        payload,
+        mimetype="text/markdown; charset=utf-8",
+        download_name=formatted_markdown_filename(),
+        as_attachment=True,
+    )
 
 
 @app.post("/render")
@@ -237,8 +287,21 @@ def render_pdf():
     if error:
         return jsonify({"error": error}), 400
 
+    # PDF information follows the visible letterhead unless the user supplied
+    # an explicit metadata override. Imported metadata fills any remaining gaps.
+    letterhead_metadata = {
+        "title": request.form.get("document_title", "").strip(),
+        "author": request.form.get("wordmark", "").strip(),
+        "subject": request.form.get("document_title", "").strip(),
+    }
+
     def metadata_value(name: str) -> str | None:
-        return request.form.get(name, "").strip() or previous_metadata.get(name) or None
+        return (
+            request.form.get(name, "").strip()
+            or letterhead_metadata.get(name)
+            or previous_metadata.get(name)
+            or None
+        )
 
     preset = request.form.get("letterhead_preset", "").strip()
     if preset and preset not in LETTERHEAD_PRESETS:
@@ -376,6 +439,17 @@ def render_pdf():
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+        emoji_style = request.form.get("emoji_style", "twemoji")
+        uploaded_emoji = request.files.get("emoji_pack")
+        emoji_pack = None
+        if emoji_style != "twemoji" and uploaded_emoji and uploaded_emoji.filename:
+            emoji_pack = root / "emoji-style.zip"
+            uploaded_emoji.save(emoji_pack)
+        try:
+            validate_emoji_style(emoji_style, emoji_pack)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
         output = root / "output.pdf"
         try:
             renderer = FirstPagePdfRenderer(
@@ -394,6 +468,8 @@ def render_pdf():
                 keywords=metadata_value("keywords"),
                 smart_quotes=truthy("smart_quotes"),
                 quote_inline_number_footnotes=truthy("quote_inline_number_footnotes"),
+                emoji_style=emoji_style,
+                emoji_pack=emoji_pack,
                 underline_links=truthy("underline_links"),
                 hide_url_scheme=truthy("hide_url_scheme"),
                 link_color=link_color,

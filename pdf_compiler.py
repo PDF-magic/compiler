@@ -36,7 +36,7 @@ from reportlab.platypus import (
 )
 
 
-from emoji_renderer import EmojiParagraph as Paragraph
+from emoji_renderer import EmojiParagraph as Paragraph, EMOJI_STYLES, render_with_emoji_style, validate_emoji_style
 from page_breaks import PAGE_BREAK_SENTINEL, normalize_page_breaks
 from document_assets import resolve_document_image
 
@@ -445,6 +445,8 @@ class PdfRenderer:
         start_heading: str | None = None,
         smart_quotes: bool = False,
         quote_inline_number_footnotes: bool = False,
+        emoji_style: str = "twemoji",
+        emoji_pack: Path | None = None,
         underline_links: bool = True,
         link_color: str = LINK_COLOR,
     ):
@@ -457,6 +459,9 @@ class PdfRenderer:
         self.author = author or ""
         self.smart_quotes = smart_quotes
         self.quote_inline_number_footnotes = quote_inline_number_footnotes
+        validate_emoji_style(emoji_style, emoji_pack)
+        self.emoji_style = emoji_style
+        self.emoji_pack = emoji_pack
         self.underline_links = underline_links
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", link_color):
             raise ValueError("Link color must be a six-digit hex color, such as #2E732E.")
@@ -1460,6 +1465,7 @@ class PdfRenderer:
             author=self.author,
         )
 
+    @render_with_emoji_style
     def build(self) -> tuple[int, int, int]:
         self.output.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.output.with_suffix(".tmp.pdf")
@@ -1526,6 +1532,10 @@ def main() -> int:
         action="store_true",
         help="Convert straight quotes to typographic quotes in rendered text",
     )
+    parser.add_argument("--emoji-style", choices=tuple(EMOJI_STYLES), default="twemoji",
+                        help="Author-selected fixed emoji artwork style")
+    parser.add_argument("--emoji-pack", type=Path,
+                        help="PNG ZIP asset pack for a non-Twemoji style")
     parser.add_argument(
         "--quote-inline-number-footnotes",
         action="store_true",
@@ -1557,6 +1567,8 @@ def main() -> int:
         start_heading=args.start_heading,
         smart_quotes=args.smart_quotes,
         quote_inline_number_footnotes=args.quote_inline_number_footnotes,
+        emoji_style=args.emoji_style,
+        emoji_pack=args.emoji_pack,
         **presentation,
     )
     from pdfa4_export import render_pdf
