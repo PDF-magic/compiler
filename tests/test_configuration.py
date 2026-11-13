@@ -16,6 +16,21 @@ class ConfigurationTests(unittest.TestCase):
         with app.test_client().get('/static/configuration.js') as script:
             self.assertEqual(script.status_code, 200)
 
+    def test_logo_is_served_as_svg_favicon(self):
+        with app.test_client() as client:
+            page = client.get("/")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(
+                b'<link rel="icon" type="image/svg+xml" href="/static/logo.svg">',
+                page.data,
+            )
+
+            icon = client.get("/static/logo.svg")
+            self.assertEqual(icon.status_code, 200)
+            self.assertEqual(icon.mimetype, "image/svg+xml")
+            self.assertIn(b'<svg ', icon.data)
+            self.assertIn(b'viewBox="0 0 64 64"', icon.data)
+
     @unittest.skipUnless(shutil.which('node'), 'Node is required for configuration browser logic tests')
     def test_configuration_round_trip_and_validation(self):
         result = subprocess.run(
