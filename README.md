@@ -10,9 +10,13 @@ python -m pip install -r requirements.txt
 
 ## Web configurator
 
-Emoji in paragraph text, section headings, the table of contents, and document
-titles render as inline color images using bundled Twemoji artwork. No emoji font
-or network connection is required. Artwork credits and licensing are in
+Emoji retain their original Unicode characters in the PDF text stream while
+rendering as author-selected fixed-color artwork. Each color emoji has an inline
+Type 3 text glyph with a ToUnicode mapping for the exact original sequence
+(including skin tones, variation selectors, and joined emoji). Copying or
+extracting the surrounding paragraph can therefore recover its Unicode emoji.
+Twemoji is bundled by default; other styles require a PNG ZIP pack. Viewer
+support for complex Unicode copy/paste varies. Twemoji credits are in
 [the emoji asset notes](assets/twemoji/README.md).
 
 Run the web app:
@@ -363,3 +367,21 @@ Enable **Customize positions on the first page** in Letterhead to arrange the ex
 The editor uses the current page margins and reserves room above the body for visible fields. A positioned addressee appears once. Disabling the editor restores the fixed letterhead layout, while configuration export preserves your custom arrangement for later reuse. This integrates the editor from:
 
 https://github.com/PDF-magic/compiler/pull/37
+
+
+### Author-selected emoji appearance
+
+Choose --emoji-style from twemoji, fluent, noto, openmoji, blobmoji, emojitwo,
+or mutant-standard. Twemoji is the built-in default. For other styles, supply
+--emoji-pack /path/to/artwork.zip, upload the ZIP in the web form, or install
+the pack at assets/emoji-styles/STYLE/72x72.zip. Individual PNG files are
+named by lowercase Unicode codepoints, joined with hyphens for sequences,
+such as 1f600.png, 1f44d-1f3fd.png or
+1f468-200d-1f469-200d-1f467-200d-1f466.png. Nested ZIP folders are allowed.
+
+Missing supported emoji fail compilation rather than changing the style.
+The author must source artwork and comply with the selected project's license.
+Mutant Standard uses a noncommercial license and is not bundled. These images
+fix the visual appearance; accompanying Type 3 ToUnicode glyphs preserve the
+original emoji as inline selectable text. PDF/A output still needs independent
+conformance validation.
