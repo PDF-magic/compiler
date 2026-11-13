@@ -61,7 +61,67 @@ class EmojiRendererTests(unittest.TestCase):
             )
             pages, _, _ = renderer.build()
             self.assertGreater(pages, 2)
-            self.assertIn(b"/Subtype /Image", output.read_bytes())
+            import fitz
+            with fitz.open(output) as pdf:
+                self.assertTrue(any(page.get_images() for page in pdf))
+
+    def test_color_emoji_copy_as_original_inline_unicode(self):
+        import fitz
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "emoji-copy.md"
+            source.write_text(
+                "## Greeting 😀\n\n"
+                "Hello 😀 world 👍🏽 family 👨‍👩‍👧‍👦 flag 🇺🇸 heart ❤️.\n\n"
+                "Next paragraph: 🦄 then ✨.\n",
+                encoding="utf-8",
+            )
+            output = root / "emoji-copy.pdf"
+            renderer = FirstPagePdfRenderer(
+                source, output, settings=LetterSettings(show_date=False),
+            )
+            renderer.build()
+            with fitz.open(output) as pdf:
+                text = " ".join(" ".join(page.get_text(sort=True).split())
+                                for page in pdf)
+                self.assertIn(
+                    "Hello 😀 world 👍🏽 family 👨‍👩‍👧‍👦 flag 🇺🇸 heart ❤️.", text
+                )
+                self.assertIn("Next paragraph: 🦄 then ✨.", text)
+                self.assertTrue(any(page.get_images() for page in pdf))
+                self.assertTrue(pdf[0].search_for("😀"))
+
+    def test_selected_pack_does_not_fall_back(self):
+        from zipfile import ZipFile
+        from emoji_renderer import emoji_style_scope, validate_emoji_style
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "noto.zip"
+            bundled = Path(__file__).resolve().parents[1] / "assets" / "twemoji" / "72x72.zip"
+            with ZipFile(bundled) as source, ZipFile(path, "w") as target:
+                name = next(name for name in source.namelist() if name.endswith("1f600.png"))
+                target.writestr("1f600.png", source.read(name))
+            validate_emoji_style("noto", path)
+            with emoji_style_scope("noto", path):
+                self.assertEqual(emoji_markup("😀", 14).count("<img "), 1)
+                with self.assertRaisesRegex(ValueError, "does not include emoji"):
+                    emoji_markup("👍🏽", 14)
+            with self.assertRaisesRegex(ValueError, "unavailable"):
+                validate_emoji_style("noto")
+
+    def test_preview_and_invalid_style_web_handling(self):
+        from app import app
+        with app.test_client() as client:
+            page = client.get("/")
+            self.assertIn(b'name="emoji_style"', page.data)
+            self.assertIn(b'name="emoji_pack"', page.data)
+            response = client.post("/emoji-preview", data={"emoji_style": "twemoji"})
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.data.startswith(b"\x89PNG\r\n\x1a\n"))
+            response = client.post("/render", data={"markdown": "# Emoji 😀",
+                                                   "emoji_style": "noto"})
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(b"unavailable", response.data)
 
 
 if __name__ == "__main__":
