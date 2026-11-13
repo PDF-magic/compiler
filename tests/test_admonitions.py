@@ -98,6 +98,31 @@ class AdmonitionTests(unittest.TestCase):
             self.assertEqual(style.quoteAccent, colors.HexColor("#123456"))
             self.assertEqual(style.quoteBackground, colors.HexColor("#ABCDEF"))
 
+    def test_admonition_can_override_its_color_in_markdown(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            renderer = PdfRenderer(
+                self._source(
+                    root,
+                    "> [!NOTE]\n> [!COLOR #C026D3]\n> Body text.",
+                ),
+                root / "output.pdf",
+            )
+            flowables = renderer.blockquote_flowables(
+                ["[!NOTE]", "[!COLOR #C026D3]", "Body text."]
+            )
+
+            self.assertEqual(len(flowables), 1)
+            self.assertEqual(flowables[0].getPlainText(), "Body text.")
+            self.assertEqual(
+                flowables[0].style.quoteAccent,
+                colors.HexColor("#C026D3"),
+            )
+            self.assertEqual(
+                flowables[0].style.quoteBackground,
+                colors.HexColor("#C026D3"),
+            )
+
     def test_disabling_admonitions_preserves_marker_as_quote_text(self):
         typography = TypographySettings(admonitions_enabled=False)
         with TemporaryDirectory() as temp:

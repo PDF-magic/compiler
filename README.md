@@ -27,6 +27,7 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 
 - output filename
 - PDF metadata: document title, author, subject, and keywords
+- optional previous PDF upload that reuses Title, Author, Subject, and Keywords when the corresponding metadata fields are blank
 - optional smart quotes in rendered text
 - section numbering: legal form such as `I.B.3.a.i`, decimal form such as `1.2.3.4.5`, or no visible numbering
 - optional visible table of contents using the generated section labels and page locations
@@ -39,8 +40,13 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 - addressee text with an optional bordered letterhead box
 - separate first-page and remaining-page header text, with clickable Markdown links and inline bold/italic formatting
 - footer page-count styles: none, `1`, `Page 1`, `1 of 5`, or `Page 1 of 5`
+- optional subdued `DRAFT | Ref: ... | Commit: ...` footer watermark on every page, including footnote continuations
 - optional legal-style preflight validation; findings do not block PDF rendering
 - optional HTTP(S) URL validation and canonicalization checks
+
+Every generated PDF identifies the **PDF Magic Compiler** in its PDF **Creator** metadata, with the running compiler commit's seven-character short SHA when available (for example, `PDF Magic Compiler (abcdef1)`). The document **Author** remains whatever the user entered or inherited; software attribution does not replace document authorship. The compiler reads `PDF_MAGIC_COMPILER_COMMIT_SHA`, `VERCEL_GIT_COMMIT_SHA`, or `GITHUB_SHA` (in that order), or uses HEAD of a local compiler Git checkout. Set `PDF_MAGIC_COMPILER_COMMIT_SHA` to the deployed compiler's full SHA when hosting without its Git checkout. If the running revision cannot be verified, it writes only `PDF Magic Compiler` instead of guessing from the latest upstream commit. This attribution is distinct from any draft-footer SHA, which identifies the source document.
+
+The **Running header & footer** step includes an opt-in draft watermark. Enter a draft reference and a commit SHA to identify the exact source revision in the PDF footer. Alternatively, supply a public GitHub repository (`owner/repository`) and optionally the relative source path; when the SHA field is blank, the compiler resolves the latest commit on the repository's default branch, or the most recent commit affecting that file. The commit is resolved when compiling, not continuously updated after download. GitHub lookup uses its unauthenticated public API; private repositories and rate-limited lookups require a manually pasted SHA. The compiler cannot infer a source commit from a file uploaded through the browser. This footer is disabled by default and is separate from the page-number style.
 
 Section structure is always written into the PDF outline/bookmark metadata. Turning off the visible table of contents only removes the TOC pages, and choosing no visible section numbering only removes numbering from displayed section labels; neither setting removes the PDF section outline.
 
@@ -96,13 +102,13 @@ Markdown footnote keys can be reused as stable references to the final rendered 
 The first proposition.[^ref-a]
 ```
 
-Elsewhere in the document, `{{ref-a}}` is replaced with that note number as plain text:
+Elsewhere in the document, `{ref-a}` is replaced with a linked, baseline note number:
 
 ```markdown
-_See supra note_ {{ref-a}}.
+_See supra note_ {ref-a}.
 ```
 
-If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{{key}}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{{key}}` is left visible rather than being assigned a number.
+If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{key}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{key}` is left visible rather than being assigned a number. The previous double-braced syntax (`{{key}}`) is no longer interpolated. References and citations inside fenced code blocks or inline code spans are shown literally and never influence footnote numbering.
 
 ## Command line
 
@@ -125,6 +131,7 @@ Useful options:
 --author TEXT          set PDF author metadata
 --start-heading TEXT   compile only content after an exact Markdown heading
 --smart-quotes         use typographic quotes in rendered text
+--quote-inline-number-footnotes   opt in to [11] notation inside [!QUOTE] blocks
 ```
 
 For example:
@@ -150,19 +157,32 @@ The compiler supports:
 - hierarchical section numbering for nested Markdown headings, including legal and decimal styles
 - PDF outline/bookmark entries for sections regardless of visible TOC settings
 - an optional visible table of contents with hierarchical indentation and page numbers
-- Markdown footnotes placed at the bottom of the page where referenced, including continuation pages
-- `{{key}}` interpolation for stable references to final Markdown footnote numbers
-- basic bold, italic, inline code, links, block quotes, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
+- configurable Markdown footnote placement: bottom of the referenced page, a single endnote list, or document-end endnotes grouped by the H1 where each note is first cited
+- `{key}` interpolation for stable references to final Markdown footnote numbers
+- basic bold, italic, inline code, links, block quotes with optional per-block hex colors, sourced quotation blocks, GitHub-flavored admonition blockquotes, lists, rules, and local images
 - standalone `[[signature]]` sections with an optional handwritten image over a signing line
 - optional first-page logo or text wordmark
 - configurable PDF metadata
 - configurable first-page letterhead date, submission subtitle, and top-right `Quote #` reference
+- optional drag-and-drop first-page letterhead canvas: move, resize, align, or hide existing header, logo/wordmark, visible title, quote number, date, subtitle, and addressee; add up to 12 labeled custom text fields. Keyboard arrows nudge focused fields (Shift for larger steps). Turning the editor off retains the original fixed letterhead layout. The PDF renderer reserves space below the lowest visible field.
 - optional boxed addressee block
 - separate first-page and later-page headers
 - selectable footer page-count formats using the final PDF page count
 - optional logo cleanup for padded assets and monochrome printing
 - optional smart-quote rendering without changing the Markdown source
 - read-only legal-style and HTTP(S) URL validation before PDF generation
+
+### Literal inline code
+
+Use backticks for a literal filename, path, command, or other short code fragment, including inside footnotes and quotation-local footnotes:
+
+```markdown
+An attachment is named `records_2026_[final].csv`.[^file]
+
+[^file]: The exact filename is `records_2026_[final].csv` in `reports/2026/`.
+```
+
+Inline code is rendered in Courier at the surrounding paragraph's size. Its contents are not interpreted as emphasis, links, smart quotes, Markdown footnote citations, or `{{key}}` note-number placeholders. Backslash-escaped backticks appear as literal backticks rather than starting code, and matching runs of two or more backticks let a code span include backtick characters. Unmatched backticks remain visible.
 
 ### GitHub-flavored admonition blockquotes
 
@@ -174,6 +194,30 @@ The compiler recognizes GitHub-style blockquote markers for `NOTE`, `TIP`, `IMPO
 ```
 
 The marker selects a blockquote style and is not printed as a label. In the web configurator's Style page, each category has an independent optional header, accent color, and left indent. Optional headers are centered in Times small caps, with lowercase letters rendered as reduced capitals. Category colors can be cleared to inherit the ordinary blockquote accent, and the existing blockquote corner-radius setting applies to both ordinary quotes and admonitions.
+
+### Per-blockquote hex colors
+
+A blockquote can override its configured accent color with a six-digit hex directive. The directive is metadata and is not printed:
+
+```markdown
+> [!COLOR #7C3AED]
+> This blockquote uses #7C3AED.
+```
+
+For sourced quotations and GitHub-flavored admonitions, put the color directive immediately after the block type marker:
+
+```markdown
+> [!QUOTE]
+> [!COLOR #2563EB]
+> The quotation body uses the custom color.
+> [!SOURCE] Example source
+
+> [!WARNING]
+> [!COLOR #B42318]
+> This warning uses the custom color.
+```
+
+Only full six-digit colors such as `#2E732E` are treated as directives. Invalid or abbreviated values remain ordinary quoted text. A per-block color overrides the quote accent and any background that was derived from that accent; an explicitly configured separate blockquote background remains unchanged.
 
 ### Sourced quotation blocks
 
@@ -189,7 +233,7 @@ The equivalent shorthand is `> [!SRC] Albert Einstein`.
 
 Neither marker is printed. The source renders beneath the quotation, right-aligned and prefixed with an em dash. Inline Markdown, links, and footnote references remain available in both the quotation and its source.
 
-To preserve footnotes from the quoted source, define them inside the quotation. Their labels are rendered exactly as written, so numbering may be independent and discontinuous without affecting the document's ordinary footnote sequence:
+To preserve footnotes from the quoted source, define them inside the quotation. The default (unambiguous) syntax uses caret-prefixed markers `[^17]` and `[^17]:`; their original labels remain independent of the document's footnote sequence:
 
 ```markdown
 > [!QUOTE]
@@ -199,6 +243,83 @@ To preserve footnotes from the quoted source, define them inside the quotation. 
 > [!SOURCE] Author, *Work*
 ```
 
-Quote-local footnotes render inside the quotation beneath the right-aligned source attribution. A footnote whose definition is outside the quotation remains an ordinary document footnote.
+Quote-local footnotes render inside the quotation beneath the right-aligned source attribution. Each `[!QUOTE]` has its own labels, so different quotations can each use footnote 17 with different definitions. An ordinary document footnote outside the quotation still uses `[^key]` and receives the document's sequential numbering.
+
+**Optional inline numbered quotation footnotes:** Check **Enable inline numbered footnotes ([11]) in sourced blockquotes** under **Sections & TOC**, or pass `--quote-inline-number-footnotes` on the CLI. This allows copied source text of the form `[11]` and `[11]:` *only inside* a `[!QUOTE]` block, provided a matching local definition exists:
+
+```markdown
+> [!QUOTE]
+> First quoted passage.[4] Later passage.[17]
+> [4]: Original fourth source footnote.
+> [17]: Original seventeenth source footnote.
+> [!SOURCE] Author, *Work*
+```
+
+The shorthand is **off by default** because `[11]` may be ordinary bracketed text. Without it, those characters remain literal instead of becoming citations. When enabled, only numeric caret-free references are recognized; unknown numbers, Markdown links and image labels are not converted. Standard `[^key]` quotation footnotes work with or without the option. Quote-local shorthand does not change document-wide footnote numbering, and remains a compiler-specific extension rather than portable Markdown syntax. The setting is included in exported/imported web configurations.
 
 The rendering engine, presentation settings, and validation layer are kept separate so document generation does not alter source content.
+
+## Microsoft Word exports for court and Federal Register drafts
+
+On the **Document** step, choose **Export format**. The existing PDF format
+remains the default. Two new options download editable .docx documents:
+
+- **Court pleading:** US Letter, one-inch margins, 14 pt Times New Roman,
+  double-spaced body, centered top-level headings, and footer page numbers.
+  Include the court, caption, docket/case number, title and signature directly
+  in the Markdown. Individual federal and state courts have different rules;
+  this is a starting point, not a court-specific certification.
+- **Federal Register agency draft:** US Letter, one-inch margins, 12 pt Times
+  New Roman, double-spaced body and bold preamble labels when the source
+  includes AGENCY:, ACTION:, SUMMARY:, DATES:, ADDRESSES:,
+  FOR FURTHER INFORMATION CONTACT:, or SUPPLEMENTARY INFORMATION:.
+  List numbers remain literal (not automatic numbering), links become
+  label plus plain-text URL (not clickable hyperlink objects), and document
+  core title/author/subject fields are cleared. It adds no automatic page
+  numbers or table-of-contents fields.
+
+Basic Markdown headings, paragraphs, bold/italic, lists, fenced code,
+blockquote text, sourced quotations, and link text are supported. Markdown
+footnote references are retained as numbered **editable endnote paragraphs**;
+they are not native Word footnotes. Unlike the full PDF engine, Word export
+does not yet recreate uploaded logos, handwritten signatures, movable
+letterhead elements, or specialized page-footnote layout. PDF outputs and
+their typography controls remain independent of Word export.
+
+**Federal Register agency manuscripts and public comment attachments are
+different types of submissions.** The Federal Register option is an unsigned
+draft for official agency publication; it does not file or digitally sign a
+document and is not a substitute for substantive and format review. For the
+current requirements see the [Office of the Federal Register Document
+Drafting Handbook](https://www.archives.gov/federal-register/write/ddh),
+2018 Edition, Revision 2.2, especially the rules for DOCX metadata,
+active hyperlinks and fields, auto-numbering, signatures, and headings.
+The responsible agency must approve and sign the completed document.
+
+## Professional filing style
+
+Select **Professional filing** in the Typography preset selector for a restrained presentation inspired by [the reference SEC comment letter](https://www.sec.gov/comments/sr-occ-2025-801/srocc2025801-598095-1737722.pdf). It uses one-inch side margins, 12 pt Times body text with 1.5 line spacing, justified paragraphs with first-line indents, compact headings, 10.5 pt footnotes, plain inset quotations, and page numbers positioned inside the bottom margin. Letters without footnotes use the full printable page instead of reserving a note area.
+
+Choosing a preset fills the existing typography and quotation controls and the additional page, paragraph, heading, and footnote controls. It adds no hidden rendering rules: margins, alignment, indents, spacing, heading behavior, quotation decoration, footnote reserve and alignment, and footer position all remain individually editable. Expand the grouped settings on the Typography page to adjust numeric values. **Classic** restores the default values. Letterhead, metadata, numbering, and footnote placement remain independently configurable.
+
+The same option is available on the command line:
+
+```bash
+python pdf_compiler.py comment.md --render-style professional --output comment.pdf
+```
+
+The professional CLI style includes `Page 1 of N` footers. In Python, pass `TypographySettings.for_style("professional", body_font_size=12.5)` to `FirstPagePdfRenderer` to select the preset with optional overrides.
+
+## Export and import configurations
+
+Use **Export config** at the top of the configurator to download `pdf-compiler-config.json`. Use **Import config** to restore that file, including the selected render style, custom typography, section and footnote settings, metadata, letterhead text and preset, headers, footer options, colors, and licensing settings. Custom values are restored after the typography preset is applied. Configurations also preserve first-page field positions, widths, alignments, visibility, custom labeled fields, and whether the layout editor is enabled.
+
+Configurations contain settings only. Markdown text and uploaded Markdown, logos, signatures, and previous PDFs are excluded; importing preserves the document and uploads already in the form. Keep custom assets alongside your configuration when moving it to another browser or computer. Invalid or unsupported configuration files are rejected before changing any settings.
+
+## First-page letterhead editor
+
+Enable **Customize positions on the first page** in Letterhead to arrange the existing header, logo or wordmark, title, reference, date, submission subtitle, and addressee. Select a field to change its visibility, alignment, width, and horizontal or vertical position; you can also drag it or use arrow keys (Shift for larger movements). Add up to 12 custom labeled text fields. Existing text inputs remain the source of field content.
+
+The editor uses the current page margins and reserves room above the body for visible fields. A positioned addressee appears once. Disabling the editor restores the fixed letterhead layout, while configuration export preserves your custom arrangement for later reuse. This integrates the editor from:
+
+https://github.com/PDF-magic/compiler/pull/37
