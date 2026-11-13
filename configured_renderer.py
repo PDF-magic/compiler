@@ -773,6 +773,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
         """Apply configurable PDF document-info metadata to the output canvas."""
         canvas.setTitle(self.title)
         canvas.setAuthor(self.author)
+        canvas.setCreator(compiler_creator())
         if self.subject:
             canvas.setSubject(self.subject)
         if self.keywords:

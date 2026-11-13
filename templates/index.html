@@ -258,7 +258,7 @@
   <div class="topbar">
     <div>
       <h1>PDF Compiler</h1>
-      <p class="intro">Configure one section at a time, then validate or render your PDF.</p>
+      <p class="intro">Configure one section at a time, then validate and export your PDF or editable Word document.</p>
     </div>
     <div class="action-group">
       <button id="export-config" class="secondary" type="button">Export config</button>
@@ -436,6 +436,9 @@
               {% endfor %}
             </select>
             <small>Endnotes keep global numbering and links. H1 grouping collects notes at the document end under the H1 where each note is first cited.</small>
+          </label>
+          <label class="check full"><input type="checkbox" name="quote_inline_number_footnotes"> Enable inline numbered footnotes (<code>[11]</code>) in sourced blockquotes
+            <small>Off by default to avoid interpreting ordinary bracketed text as a citation. With this on, <code>[11]</code> and <code>[11]:</code> work only inside <code>[!QUOTE]</code> blocks with matching local definitions. Standard <code>[^11]</code> works without this setting.</small>
           </label>
           <div class="full">
             <small>PDF outline/bookmarks are always generated from Markdown sections, even when the visible TOC is off or visible section numbering is disabled.</small>
@@ -769,6 +772,18 @@
   });
 
   const form = document.getElementById('compiler-form');
+  const outputFormat = document.getElementById('output-format');
+  const isWord = () => outputFormat.value !== 'pdf';
+  const outputName = () => (form.elements.output_name.value || 'document')
+    .replace(/\.(?:pdf|docx)$/i, '') + (isWord() ? '.docx' : '.pdf');
+  function downloadWord(url) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = outputName();
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
   const linkColor = document.getElementById('link-color');
   const colorSwatches = [...document.querySelectorAll('.color-swatch')];
   function updateColorSwatches() {
@@ -885,7 +900,7 @@
     renderButton.disabled = !hasDocument();
     renderButton.classList.remove('ready');
     compileStatus.textContent = hasDocument()
-      ? 'Click Compile PDF to render with these settings.'
+      ? (isWord() ? 'Click Export Word to compile this editable document.' : 'Click Compile PDF to render with these settings.')
       : 'Upload a Markdown file or paste text in Document.';
   }
 
