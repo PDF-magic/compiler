@@ -1111,13 +1111,7 @@ class PdfRenderer:
                 flush_quote()
                 image_path = self._resolve_image_reference(image_match.group(1))
                 if image_path.exists():
-                    with PILImage.open(image_path) as image:
-                        width, height = image.size
-                    scale = min((6.45 * inch) / width, (2.4 * inch) / height, 1.0)
-                    story += [
-                        Image(str(image_path), width * scale, height * scale),
-                        Spacer(1, 8),
-                    ]
+                    story.append(self.markdown_image(image_path))
                 continue
 
             if line.startswith(">"):
