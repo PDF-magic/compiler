@@ -61,7 +61,9 @@ class EmojiRendererTests(unittest.TestCase):
             )
             pages, _, _ = renderer.build()
             self.assertGreater(pages, 2)
-            self.assertIn(b"/Subtype /Image", output.read_bytes())
+            import fitz
+            with fitz.open(output) as pdf:
+                self.assertTrue(any(page.get_images() for page in pdf))
 
     def test_color_emoji_copy_as_original_inline_unicode(self):
         import fitz
