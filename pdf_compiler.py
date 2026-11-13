@@ -445,6 +445,7 @@ class PdfRenderer:
         start_heading: str | None = None,
         smart_quotes: bool = False,
         quote_inline_number_footnotes: bool = False,
+        quote_source_before_footnotes: bool = False,
         emoji_style: str = "twemoji",
         emoji_pack: Path | None = None,
         underline_links: bool = True,
@@ -459,6 +460,7 @@ class PdfRenderer:
         self.author = author or ""
         self.smart_quotes = smart_quotes
         self.quote_inline_number_footnotes = quote_inline_number_footnotes
+        self.quote_source_before_footnotes = quote_source_before_footnotes
         validate_emoji_style(emoji_style, emoji_pack)
         self.emoji_style = emoji_style
         self.emoji_pack = emoji_pack
@@ -803,11 +805,35 @@ class PdfRenderer:
                 )
             flowables.append(RefParagraph(body_text, body_style, body_refs))
 
+        def append_source(has_following: bool) -> None:
+            rendered_source, source_refs = self.quotation_inline(source, local_notes)
+            source_style = self.styles["QuotationSourceX"]
+            has_preceding = bool(flowables)
+            if has_preceding or has_following:
+                source_style = ParagraphStyle(
+                    "QuotationSourceJoinedX",
+                    parent=source_style,
+                    quoteRoundTop=not has_preceding,
+                    quoteRoundBottom=not has_following,
+                    quotePaddingTop=0 if has_preceding else 6,
+                    quotePaddingBottom=0 if has_following else 6,
+                    spaceBefore=0,
+                    spaceAfter=0,
+                )
+            flowables.append(
+                RefParagraph(f"— {rendered_source}", source_style, source_refs)
+            )
+
+        if source and self.quote_source_before_footnotes:
+            append_source(has_following=bool(local_note_items))
+
         for index, (key, note_text) in enumerate(local_note_items):
             rendered_note, note_refs = self.quotation_inline(note_text, local_notes)
             note_style = self.styles["QuotationFootnoteX"]
             has_preceding = bool(flowables)
-            has_following = index < len(local_note_items) - 1 or bool(source)
+            has_following = index < len(local_note_items) - 1 or bool(
+                source and not self.quote_source_before_footnotes
+            )
             if has_preceding or has_following:
                 note_style = ParagraphStyle(
                     f"QuotationFootnoteJoinedX{index}",
@@ -827,20 +853,8 @@ class PdfRenderer:
                 )
             )
 
-        if source:
-            rendered_source, source_refs = self.quotation_inline(source, local_notes)
-            source_style = self.styles["QuotationSourceX"]
-            if flowables:
-                source_style = ParagraphStyle(
-                    "QuotationSourceJoinedX",
-                    parent=source_style,
-                    quoteRoundTop=False,
-                    quotePaddingTop=0,
-                    spaceBefore=0,
-                )
-            flowables.append(
-                RefParagraph(f"— {rendered_source}", source_style, source_refs)
-            )
+        if source and not self.quote_source_before_footnotes:
+            append_source(has_following=False)
 
         if not flowables:
             flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
@@ -1541,6 +1555,11 @@ def main() -> int:
         action="store_true",
         help="Interpret [11] citations and [11]: definitions inside [!QUOTE] blocks (off by default)",
     )
+    parser.add_argument(
+        "--quote-source-before-footnotes",
+        action="store_true",
+        help="Place [!SOURCE] attribution before quote-local footnotes (off by default)",
+    )
     args = parser.parse_args()
 
     output = args.output or args.source.with_suffix(".pdf")
@@ -1567,6 +1586,7 @@ def main() -> int:
         start_heading=args.start_heading,
         smart_quotes=args.smart_quotes,
         quote_inline_number_footnotes=args.quote_inline_number_footnotes,
+        quote_source_before_footnotes=args.quote_source_before_footnotes,
         emoji_style=args.emoji_style,
         emoji_pack=args.emoji_pack,
         **presentation,
