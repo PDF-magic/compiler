@@ -1,4 +1,4 @@
-"""Small web UI for configuring, validating, and rendering PDFs."""
+"""Small web UI for configuring, validating, formatting, and rendering PDFs."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ from legal_style_validator import validate_legal_style
 from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
                                  PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
 from url_validator import validate_urls
+from markdown_formatter import format_markdown
 from word_export import WORD_PROFILES, build_word_document
 
 app = Flask(__name__)
@@ -107,6 +108,18 @@ def submitted_markdown() -> tuple[str | None, str | None, Path | None]:
     if markdown.strip():
         return markdown, None, Path("document.md")
     return None, "Upload a Markdown file or folder, or paste Markdown text.", None
+
+
+def formatted_markdown_filename() -> str:
+    source_upload = request.files.get("source")
+    if source_upload and source_upload.filename:
+        source_name = secure_filename(source_upload.filename) or "document.md"
+        stem = Path(source_name).stem or "document"
+        suffix = Path(source_name).suffix.lower()
+        if suffix not in {".md", ".markdown"}:
+            suffix = ".md"
+        return f"{stem}-formatted{suffix}"
+    return "document-formatted.md"
 
 
 def preflight_issues(markdown: str) -> list[dict[str, object]]:
@@ -203,6 +216,22 @@ def validate_markdown():
             return jsonify({"valid": False, "error": str(exc), "issues": []}), 400
     issues = preflight_issues(markdown or "")
     return jsonify({"valid": not issues, "issues": issues})
+
+
+@app.post("/format")
+def format_markdown_source():
+    markdown, error, _source_relative = submitted_markdown()
+    if error:
+        return jsonify({"error": error}), 400
+
+    formatted = format_markdown(markdown or "")
+    payload = BytesIO(formatted.encode("utf-8"))
+    return send_file(
+        payload,
+        mimetype="text/markdown; charset=utf-8",
+        download_name=formatted_markdown_filename(),
+        as_attachment=True,
+    )
 
 
 @app.post("/render")
