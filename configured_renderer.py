@@ -16,6 +16,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import (
     HRFlowable,
     Image,
@@ -26,7 +27,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, alpha, roman
+from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, compiler_creator, roman
 from emoji_renderer import EmojiParagraph as Paragraph
 
 
@@ -58,6 +59,21 @@ SECTION_NUMBERING_STYLES = {
     "none": "No visible section numbers",
 }
 
+FOOTNOTE_PLACEMENTS = {
+    "page": "Bottom of referenced page",
+    "end_document": "End of document",
+    "end_h1": "End of document, grouped by H1",
+}
+
+LICENSE_PRESETS = {
+    "none": "No preset",
+    "cc_by_sa_4_0": "CC BY-SA 4.0",
+    "gfdl_1_3": "GNU Free Documentation License 1.3",
+}
+
+CC_BY_SA_4_0_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
+GFDL_1_3_PATH = Path(__file__).resolve().parent / "assets" / "gfdl-1.3.txt"
+
 
 @dataclass(slots=True)
 class LetterSettings:
@@ -68,14 +84,21 @@ class LetterSettings:
     custom_date_format: str = "%B %d, %Y"
     date_value: str | None = None
     submission_subtitle: str = ""
+    quote_number: str = ""
     addressee: str = ""
     addressee_box: bool = False
     logo_treatment: str = "preserve"
     first_page_header: str = ""
     remaining_page_header: str = ""
     page_number_style: str = "none"
+    draft_footer: bool = False
+    draft_reference: str = ""
+    latest_commit: str = ""
     include_toc: bool = False
     section_numbering: str = "legal"
+    footnote_placement: str = "page"
+    license_preset: str = "none"
+    license_subtitle: str = ""
 
     def __post_init__(self) -> None:
         if self.date_format not in DATE_FORMATS:
@@ -84,8 +107,19 @@ class LetterSettings:
             raise ValueError(f"Unknown image treatment: {self.logo_treatment}")
         if self.page_number_style not in PAGE_NUMBER_STYLES:
             raise ValueError(f"Unknown page-number style: {self.page_number_style}")
+        if self.draft_footer:
+            self.draft_reference = self.draft_reference.strip()
+            self.latest_commit = self.latest_commit.strip()
+            if len(self.draft_reference) > 64 or any(ord(c) < 32 for c in self.draft_reference):
+                raise ValueError("Draft reference must be 64 characters or fewer, on one line.")
+            if not re.fullmatch(r"[0-9a-fA-F]{7,64}", self.latest_commit):
+                raise ValueError("A draft footer needs a Git commit SHA (7–64 hexadecimal characters).")
         if self.section_numbering not in SECTION_NUMBERING_STYLES:
             raise ValueError(f"Unknown section-numbering style: {self.section_numbering}")
+        if self.footnote_placement not in FOOTNOTE_PLACEMENTS:
+            raise ValueError(f"Unknown footnote placement: {self.footnote_placement}")
+        if self.license_preset not in LICENSE_PRESETS:
+            raise ValueError(f"Unknown license preset: {self.license_preset}")
         if self.date_value:
             date.fromisoformat(self.date_value)
 
@@ -184,6 +218,10 @@ class ConfiguredPdfRenderer(PdfRenderer):
         self.keywords = keywords or ""
         self._total_pages = 0
         super().__init__(source, output, **kwargs)
+        if self.letter_settings.footnote_placement != "page":
+            # Endnotes live in the document flow, so they do not need the large
+            # bottom reserve used by page footnotes.
+            self.bottom = 0.78 * inch
         if self.letter_settings.first_page_header or self.letter_settings.remaining_page_header:
             self.top = max(self.top, 1.10 * inch)
 
@@ -218,7 +256,10 @@ class ConfiguredPdfRenderer(PdfRenderer):
         if not self.letter_settings.addressee:
             return []
         text = "<br/>".join(escape(line) for line in self.letter_settings.addressee.splitlines())
-        paragraph = Paragraph(text, self.styles["BodyX"])
+        style = ParagraphStyle(
+            "AddressX", parent=self.styles["BodyX"], firstLineIndent=0, alignment=0,
+        )
+        paragraph = Paragraph(text, style)
         if not self.letter_settings.addressee_box:
             return [paragraph, Spacer(1, 8)]
 
@@ -244,6 +285,19 @@ class ConfiguredPdfRenderer(PdfRenderer):
         number = format_section_number(self.letter_settings.section_numbering, counts, level)
         return f"{number} {title}" if number else title
 
+    @staticmethod
+    def _toc_marker_level(line: str) -> int | None:
+        """Return the Markdown heading level for a TOC marker.
+
+        The legacy double-bracket TOC form returns 0 so callers can distinguish
+        it from heading markers without losing backward compatibility.
+        """
+        stripped = line.strip()
+        if stripped == "[[TOC]]":
+            return 0
+        match = re.fullmatch(r"(#{1,6})\s+\[TOC\]", stripped)
+        return len(match.group(1)) if match else None
+
     def _collect_section_entries(self) -> list[tuple[int, str]]:
         """Collect numbered section labels in source order, excluding fenced code."""
         entries: list[tuple[int, str]] = []
@@ -262,6 +316,8 @@ class ConfiguredPdfRenderer(PdfRenderer):
                     fence_marker = None
                 continue
             if in_fence:
+                continue
+            if self._toc_marker_level(raw_line) is not None:
                 continue
             match = re.match(r"^(#{2,6})\s+(.*)$", raw_line.rstrip())
             if not match:
@@ -285,23 +341,41 @@ class ConfiguredPdfRenderer(PdfRenderer):
                     in_fence = False
                     fence_marker = None
                 continue
-            if not in_fence and raw_line.strip() == "[[TOC]]":
+            if not in_fence and self._toc_marker_level(raw_line) is not None:
                 return True
         return False
 
-    def _toc_block(self, page_numbers: list[int] | None = None, *, force: bool = False):
+    def _toc_block(
+        self,
+        page_numbers: list[int] | None = None,
+        *,
+        force: bool = False,
+        title_level: int | None = None,
+    ):
         if not (force or self.letter_settings.include_toc):
             return []
 
         entries = self._collect_section_entries()
-        title_style = ParagraphStyle(
-            "TOCTitleX",
-            parent=self.styles["H1X"],
-            fontSize=14,
-            leading=17,
-            spaceBefore=4,
-            spaceAfter=10,
-        )
+        if title_level is None:
+            title_style = ParagraphStyle(
+                "TOCTitleX",
+                parent=self.styles["H1X"],
+                fontSize=14,
+                leading=17,
+                spaceBefore=4,
+                spaceAfter=10,
+            )
+        else:
+            title_parent = {
+                1: self.styles["H1X"],
+                2: self.styles["H2X"],
+                3: self.styles["H3X"],
+            }.get(title_level, self.styles["H4X"])
+            title_style = ParagraphStyle(
+                f"TOCTitleX{title_level}",
+                parent=title_parent,
+                spaceAfter=10,
+            )
         page_style = ParagraphStyle(
             "TOCPageX",
             parent=self.styles["BodyX"],
@@ -357,6 +431,205 @@ class ConfiguredPdfRenderer(PdfRenderer):
             Paragraph(f'<link href="{target}">{page}</link>', page_style),
         ]
 
+    def _endnote_groups(self) -> list[tuple[str | None, list[int]]]:
+        """Return endnote numbers in one list or grouped by the H1 of first citation."""
+        placement = self.letter_settings.footnote_placement
+        if placement == "page" or not self.order:
+            return []
+        if placement == "end_document":
+            return [(None, list(range(1, len(self.order) + 1)))]
+
+        groups: list[tuple[str | None, list[int]]] = []
+        current_title: str | None = None
+        current_numbers: list[int] | None = None
+        seen: set[int] = set()
+        fence_marker: str | None = None
+
+        def active_group() -> list[int]:
+            nonlocal current_numbers
+            if current_numbers is None:
+                current_numbers = []
+                groups.append((current_title, current_numbers))
+            return current_numbers
+
+        for raw_line in self.body_text.splitlines():
+            fence_marker, boundary = advance_code_fence(raw_line, fence_marker)
+            if boundary or fence_marker is not None:
+                continue
+
+            heading = re.match(r"^#\s+(.*)$", raw_line.rstrip())
+            if heading:
+                current_title = self.clean_heading(heading.group(1))
+                current_numbers = None
+
+            for match in self.note_ref_re.finditer(
+                self.inline_code_re.sub("", raw_line)
+            ):
+                number = self.nums.get(match.group(1))
+                if number is None or number in seen:
+                    continue
+                active_group().append(number)
+                seen.add(number)
+
+        missing = [number for number in range(1, len(self.order) + 1) if number not in seen]
+        if missing:
+            active_group().extend(missing)
+        return [(title, numbers) for title, numbers in groups if numbers]
+
+    def _endnote_block(self):
+        """Render ordinary Markdown footnotes in the document flow when requested."""
+        groups = self._endnote_groups()
+        if not groups:
+            return []
+
+        title_style = ParagraphStyle(
+            "EndnotesTitleX",
+            parent=self.styles["H1X"],
+            spaceBefore=0,
+            spaceAfter=10,
+        )
+        group_style = ParagraphStyle(
+            "EndnotesGroupX",
+            parent=self.styles["H2X"],
+            spaceBefore=10,
+            spaceAfter=5,
+        )
+        story = [PageBreak(), Paragraph("Notes", title_style)]
+        grouped = self.letter_settings.footnote_placement == "end_h1"
+
+        for group_index, (title, numbers) in enumerate(groups):
+            if grouped and (title or len(groups) > 1):
+                label = title or "Document"
+                rendered_label, _ = self.markdown_inline(label, False)
+                if group_index:
+                    story.append(Spacer(1, 4))
+                story.append(Paragraph(rendered_label, group_style))
+
+            for number in numbers:
+                key = self.order[number - 1]
+                text, _ = self.markdown_inline(
+                    self.note_defs.get(key, f"Missing footnote definition for {key}."),
+                    False,
+                )
+                story.append(
+                    Paragraph(
+                        f'<a name="{self.note_destination(number)}"/>{number}. {text}',
+                        self.styles["FootX"],
+                    )
+                )
+        return story
+
+    def _license_reference_block(self):
+        """Return the compact end-of-document licensing reference, when requested."""
+        preset = self.letter_settings.license_preset
+        subtitle = self.letter_settings.license_subtitle.strip()
+        if preset == "gfdl_1_3" or (preset == "none" and not subtitle):
+            return []
+
+        style = ParagraphStyle(
+            "LicenseReferenceX",
+            parent=self.styles["FootX"],
+            fontSize=max(7.0, self.styles["FootX"].fontSize),
+            leading=max(9.0, self.styles["FootX"].leading),
+            textColor=colors.HexColor("#4B5563"),
+            spaceBefore=0,
+            spaceAfter=0,
+        )
+        story = [
+            Spacer(1, 14),
+            HRFlowable(width="100%", thickness=0.45, color=colors.HexColor("#B8C0CC")),
+            Spacer(1, 5),
+        ]
+        if preset == "cc_by_sa_4_0":
+            story.append(
+                Paragraph(
+                    'Licensed under the <link href="' + CC_BY_SA_4_0_URL +
+                    '" color="' + self.link_color +
+                    '">Creative Commons Attribution-ShareAlike 4.0 International license (CC BY-SA 4.0)</link>.',
+                    style,
+                )
+            )
+        if subtitle:
+            rendered, _ = self.markdown_inline(subtitle, False)
+            subtitle_style = ParagraphStyle(
+                "LicenseSubtitleX",
+                parent=style,
+                fontName="Times-Italic",
+                spaceBefore=2,
+            )
+            story.append(Paragraph(rendered, subtitle_style))
+        return story
+
+    def _gfdl_appendix(self):
+        """Append a verbatim GFDL 1.3 copy as readable document pages."""
+        if self.letter_settings.license_preset != "gfdl_1_3":
+            return []
+
+        license_text = GFDL_1_3_PATH.read_text(encoding="utf-8").strip()
+        blocks = [block.strip() for block in re.split(r"\n\s*\n", license_text) if block.strip()]
+        if not blocks:
+            return []
+
+        title_style = ParagraphStyle(
+            "GFDLTitleX",
+            parent=self.styles["H1X"],
+            fontSize=14,
+            leading=17,
+            spaceBefore=0,
+            spaceAfter=4,
+        )
+        section_style = ParagraphStyle(
+            "GFDLSectionX",
+            parent=self.styles["H2X"],
+            fontSize=10,
+            leading=12,
+            spaceBefore=8,
+            spaceAfter=4,
+        )
+        body_style = ParagraphStyle(
+            "GFDLBodyX",
+            parent=self.styles["BodyX"],
+            fontSize=8.5,
+            leading=10.5,
+            spaceBefore=0,
+            spaceAfter=5,
+        )
+        subtitle_style = ParagraphStyle(
+            "GFDLSubtitleX",
+            parent=body_style,
+            fontName="Times-Italic",
+            fontSize=9,
+            leading=11,
+            spaceAfter=7,
+        )
+
+        story = [PageBreak()]
+        title_lines = [line.strip() for line in blocks.pop(0).splitlines() if line.strip()]
+        if title_lines:
+            story.append(Paragraph(escape(title_lines[0]), title_style))
+            for line in title_lines[1:]:
+                story.append(Paragraph(escape(line), subtitle_style))
+
+        subtitle = self.letter_settings.license_subtitle.strip()
+        if subtitle:
+            rendered, _ = self.markdown_inline(subtitle, False)
+            story.append(Paragraph(rendered, subtitle_style))
+
+        for block in blocks:
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            joined = " ".join(lines)
+            is_heading = bool(
+                re.fullmatch(r"\d+\.\s+[A-Z][A-Z0-9 ,/\-()]+", joined)
+                or joined.startswith("ADDENDUM:")
+            )
+            if is_heading:
+                story.append(Paragraph(escape(joined), section_style))
+            else:
+                story.append(Paragraph("<br/>".join(escape(line) for line in lines), body_style))
+        return story
+
     def build_story(self, extra_pages: int = 0, toc_page_numbers: list[int] | None = None):
         """Build the visible document while always attaching section outlines."""
         story = []
@@ -368,7 +641,6 @@ class ConfiguredPdfRenderer(PdfRenderer):
 
         paragraph_lines: list[str] = []
         quote_lines: list[str] = []
-        in_fence = False
         fence_marker: str | None = None
         toc_inserted = False
         counts = {level: 0 for level in range(2, 7)}
@@ -383,13 +655,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
         def flush_quote():
             nonlocal quote_lines
             if quote_lines:
-                chunks = []
-                refs = []
-                for quote in quote_lines:
-                    rendered, quote_refs = self.markdown_inline(quote.strip(), True)
-                    chunks.append(rendered)
-                    refs.extend(quote_refs)
-                story.append(RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs))
+                story.extend(self.blockquote_flowables(quote_lines))
                 quote_lines = []
 
         section_index = 0
@@ -416,26 +682,27 @@ class ConfiguredPdfRenderer(PdfRenderer):
             line = raw_line.rstrip()
             stripped = line.lstrip()
 
-            if stripped.startswith("```") or stripped.startswith("~~~"):
+            fence_marker, boundary = advance_code_fence(line, fence_marker)
+            if boundary:
                 flush_paragraph()
                 flush_quote()
-                marker = stripped[:3]
-                if not in_fence:
-                    in_fence = True
-                    fence_marker = marker
-                elif marker == fence_marker:
-                    in_fence = False
-                    fence_marker = None
                 continue
-            if in_fence:
+            if fence_marker is not None:
                 if line.strip():
-                    story.append(self.paragraph(line, self.styles["BodyX"]))
+                    story.append(self.code_paragraph(line))
                 continue
-            if line.strip() == "[[TOC]]":
+            toc_marker_level = self._toc_marker_level(line)
+            if toc_marker_level is not None:
                 flush_paragraph()
                 flush_quote()
                 if not toc_inserted:
-                    story.extend(self._toc_block(toc_page_numbers, force=True))
+                    story.extend(
+                        self._toc_block(
+                            toc_page_numbers,
+                            force=True,
+                            title_level=toc_marker_level or None,
+                        )
+                    )
                     toc_inserted = True
                 continue
             if not line.strip():
@@ -460,10 +727,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 flush_quote()
                 image_path = (self.source.parent / image_match.group(1)).resolve()
                 if image_path.exists():
-                    with PILImage.open(image_path) as image:
-                        width, height = image.size
-                    scale = min((6.45 * inch) / width, (2.4 * inch) / height, 1.0)
-                    story.extend([Image(str(image_path), width * scale, height * scale), Spacer(1, 8)])
+                    story.append(self.markdown_image(image_path))
                 continue
 
             if line.startswith(">"):
@@ -498,12 +762,16 @@ class ConfiguredPdfRenderer(PdfRenderer):
         flush_quote()
         for _ in range(extra_pages):
             story.extend([PageBreak(), Spacer(1, 1)])
+        story.extend(self._endnote_block())
+        story.extend(self._license_reference_block())
+        story.extend(self._gfdl_appendix())
         return story
 
     def apply_metadata(self, canvas) -> None:
         """Apply configurable PDF document-info metadata to the output canvas."""
         canvas.setTitle(self.title)
         canvas.setAuthor(self.author)
+        canvas.setCreator(compiler_creator())
         if self.subject:
             canvas.setSubject(self.subject)
         if self.keywords:
@@ -610,13 +878,54 @@ class ConfiguredPdfRenderer(PdfRenderer):
         canvas.drawCentredString(self.page_width / 2, 0.14 * inch, label)
         canvas.restoreState()
 
+    def draw_draft_footer(self, canvas) -> None:
+        """Mark each draft page with the supplied source revision, not the compiler revision."""
+        settings = self.letter_settings
+        if not settings.draft_footer:
+            return
+
+        label = "DRAFT"
+        if settings.draft_reference:
+            label += f"  |  Ref: {settings.draft_reference}"
+        label += f"  |  Commit: {settings.latest_commit}"
+        width = self.page_width - self.left - self.right
+        text_width = pdfmetrics.stringWidth(label, "Times-Roman", 7.5)
+        font_size = 7.5 if text_width <= width else 7.5 * width / text_width
+        baseline = (0.36 if settings.page_number_style != "none" else 0.14) * inch
+
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor("#777777"))
+        canvas.setFont("Times-Roman", font_size)
+        canvas.drawCentredString(self.page_width / 2, baseline, label)
+        canvas.restoreState()
+
     def continuation_pages_needed(self, page_refs: dict[int, list[int]], base_pages: int) -> int:
+        if self.letter_settings.footnote_placement != "page":
+            self._total_pages = base_pages
+            return 0
         extra = super().continuation_pages_needed(page_refs, base_pages)
         self._total_pages = base_pages + extra
         return extra
 
+    def footnote_bottom_guard(self) -> float:
+        if self.letter_settings.draft_footer:
+            return (0.62 if self.letter_settings.page_number_style != "none" else 0.38) * inch
+        return (0.34 if self.letter_settings.page_number_style != "none" else 0.24) * inch
+
+    def footnote_rule_y(self, items: list[Paragraph]) -> float:
+        return 0.30 * inch + self.foot_top
+
     def page_drawer(self, page_refs: dict[int, list[int]]):
         carry: list[Paragraph] = []
+        anchored_notes: set[int] = set()
+
+        def anchor_note(canvas, doc, paragraph, top):
+            number = getattr(paragraph, "footnote_number", None)
+            if number is not None and number not in anchored_notes:
+                canvas.bookmarkHorizontalAbsolute(
+                    self.note_destination(number), top, left=doc.leftMargin,
+                )
+                anchored_notes.add(number)
 
         def draw(canvas, doc):
             nonlocal carry
@@ -626,25 +935,30 @@ class ConfiguredPdfRenderer(PdfRenderer):
             else:
                 self.draw_remaining_header(canvas, doc)
 
-            refs = page_refs.get(doc.page, [])
+            refs = (
+                page_refs.get(doc.page, [])
+                if self.letter_settings.footnote_placement == "page"
+                else []
+            )
             items = carry + [self.footnote_paragraph(number) for number in refs]
             carry = []
             if items:
                 canvas.saveState()
-                yline = 0.30 * inch + self.foot_top
+                yline = self.footnote_rule_y(items)
                 canvas.setStrokeColor(colors.HexColor("#B8C0CC"))
                 canvas.setLineWidth(0.45)
                 canvas.line(doc.leftMargin, yline, self.page_width - doc.rightMargin, yline)
                 y = yline - 0.08 * inch
-                bottom_guard = 0.34 * inch if self.letter_settings.page_number_style != "none" else 0.24 * inch
+                bottom_guard = self.footnote_bottom_guard()
 
                 for index, paragraph in enumerate(items):
                     available = y - bottom_guard
                     _, height = paragraph.wrap(self.max_foot_width, available)
                     if height <= available:
                         y -= height
+                        anchor_note(canvas, doc, paragraph, y + height)
                         paragraph.drawOn(canvas, doc.leftMargin, y)
-                        y -= 0.02 * inch
+                        y -= self.footnote_gap()
                         continue
 
                     pieces = paragraph.split(self.max_foot_width, available)
@@ -653,6 +967,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                         _, first_height = first.wrap(self.max_foot_width, available)
                         if first_height <= available:
                             y -= first_height
+                            anchor_note(canvas, doc, paragraph, y + first_height)
                             first.drawOn(canvas, doc.leftMargin, y)
                             carry = pieces[1:] + items[index + 1 :]
                             break
@@ -662,6 +977,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 canvas.restoreState()
 
             self.draw_page_number(canvas, doc.page)
+            self.draw_draft_footer(canvas)
 
         draw.carry = lambda: carry
         return draw
@@ -688,7 +1004,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
         first_doc = self.document(tmp)
         first_doc.build(
             self.build_story(),
-            onFirstPage=lambda _canvas, _doc: None,
+            onFirstPage=self.first_pass_note_destinations,
             onLaterPages=lambda _canvas, _doc: None,
         )
 
