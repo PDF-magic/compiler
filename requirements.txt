@@ -2,4 +2,5 @@ Flask
 Pillow
 reportlab
 PyMuPDF
+python-docx
 pikepdf>=10.0

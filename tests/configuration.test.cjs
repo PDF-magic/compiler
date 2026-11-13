@@ -16,12 +16,14 @@ function fixture() {
   const size = control('body_font_size', '13');
   const checked = control('admonitions_enabled', '1', 'checkbox');
   checked.checked = false;
+  const quoteNumbers = control('quote_inline_number_footnotes', '1', 'checkbox');
+  quoteNumbers.checked = false;
   const fallback = control('admonitions_enabled', '0', 'hidden');
   const source = control('source', 'uploaded.md', 'file');
   const markdown = control('markdown', 'Original document');
-  const form = { elements: [style, size, fallback, checked, source, markdown] };
+  const form = { elements: [style, size, fallback, checked, quoteNumbers, source, markdown] };
   style.onChange = () => { size.value = '12'; };
-  return { form, style, size, checked, source, markdown };
+  return { form, style, size, checked, quoteNumbers, source, markdown };
 }
 
 {
@@ -29,14 +31,17 @@ function fixture() {
   const config = JSON.parse(JSON.stringify(exportConfiguration(fields.form)));
   assert.deepEqual(config.settings, {
     render_style: 'professional', body_font_size: '13', admonitions_enabled: false,
+    quote_inline_number_footnotes: false,
   });
   fields.style.value = 'classic';
   fields.size.value = '11';
   fields.checked.checked = true;
+  fields.quoteNumbers.checked = true;
   importConfiguration(fields.form, config);
   assert.equal(fields.style.value, 'professional');
   assert.equal(fields.size.value, '13', 'Saved overrides must survive style reset');
   assert.equal(fields.checked.checked, false, 'Unchecked settings must round-trip');
+  assert.equal(fields.quoteNumbers.checked, false, 'Opt-in quotation syntax must remain disabled');
   assert.equal(fields.source.value, 'uploaded.md');
   assert.equal(fields.markdown.value, 'Original document');
   assert.deepEqual(fields.style.events, ['change']);
@@ -45,7 +50,8 @@ function fixture() {
 
 for (const [setting, value] of [
   ['render_style', 'unknown'], ['body_font_size', 'invalid'],
-  ['admonitions_enabled', 'false'], ['source', 'overwrite.md'],
+  ['admonitions_enabled', 'false'], ['quote_inline_number_footnotes', 'true'],
+  ['source', 'overwrite.md'],
   ['markdown', 'overwrite document'], ['unknown', 'value'],
 ]) {
   const fields = fixture();
