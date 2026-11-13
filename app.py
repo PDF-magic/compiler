@@ -31,6 +31,7 @@ from legal_style_validator import validate_legal_style
 from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
                                  PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
 from url_validator import validate_urls
+from word_export import WORD_PROFILES, build_word_document
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
@@ -176,6 +177,28 @@ def render_pdf():
     markdown, error = submitted_markdown()
     if error:
         return jsonify({"error": error}), 400
+
+    output_format = request.form.get("output_format", "pdf")
+    if output_format not in {"pdf", *WORD_PROFILES}:
+        return jsonify({"error": "Unknown output format."}), 400
+    if output_format != "pdf":
+        try:
+            payload = build_word_document(
+                markdown or "",
+                profile=output_format,
+                title=request.form.get("title", "").strip(),
+                author=request.form.get("author", "").strip(),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        filename = secure_filename(request.form.get("output_name", "document.docx")) or "document.docx"
+        filename = re.sub(r"\.(?:pdf|docx)$", "", filename, flags=re.I) + ".docx"
+        return send_file(
+            BytesIO(payload),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            download_name=filename,
+            as_attachment=True,
+        )
 
     previous_metadata, error = submitted_previous_pdf_metadata()
     if error:
