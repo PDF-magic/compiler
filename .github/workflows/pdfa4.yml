@@ -1,0 +1,70 @@
+name: PDF/A-4 validation
+
+on:
+  pull_request:
+    paths:
+      - "pdfa4_export.py"
+      - "pdf_compiler.py"
+      - "app.py"
+      - "templates/index.html"
+      - "configured_renderer.py"
+      - "first_page_layout.py"
+      - "tests/test_pdfa4_export.py"
+      - "requirements.txt"
+      - ".github/workflows/pdfa4.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pdfa4_export.py"
+      - "pdf_compiler.py"
+      - "app.py"
+      - "templates/index.html"
+      - "tests/test_pdfa4_export.py"
+      - "requirements.txt"
+      - ".github/workflows/pdfa4.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install renderer dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Install pinned veraPDF 1.30.2
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/verapdf.zip" \
+            "https://software.verapdf.org/rel/1.30/verapdf-greenfield-1.30.2-installer.zip"
+          unzip -q "$RUNNER_TEMP/verapdf.zip" -d "$RUNNER_TEMP/installer"
+          cat > "$RUNNER_TEMP/install.xml" <<EOF
+          <AutomatedInstallation langpack="eng">
+            <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
+            <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+              <installpath>$RUNNER_TEMP/verapdf</installpath>
+            </com.izforge.izpack.panels.target.TargetPanel>
+            <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
+              <pack index="0" name="veraPDF GUI" selected="false"/>
+              <pack index="1" name="veraPDF CLI" selected="true"/>
+              <pack index="2" name="veraPDF Documentation" selected="false"/>
+              <pack index="3" name="veraPDF Sample Plugins" selected="false"/>
+            </com.izforge.izpack.panels.packs.PacksPanel>
+            <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+            <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+          </AutomatedInstallation>
+          EOF
+          java -jar "$(find "$RUNNER_TEMP/installer" -name 'verapdf-izpack-installer-*.jar' -print -quit)" "$RUNNER_TEMP/install.xml"
+          test -x "$RUNNER_TEMP/verapdf/verapdf"
+          echo "$RUNNER_TEMP/verapdf" >> "$GITHUB_PATH"
+      - name: Run PDF/A-4 unit and real validation tests
+        run: python -m unittest discover -s tests -p "test_pdfa4_export.py" -v

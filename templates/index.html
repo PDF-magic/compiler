@@ -455,6 +455,13 @@
       <fieldset class="wizard-page" data-step-title="Output metadata">
         <legend>Output metadata</legend>
         <div class="grid">
+          <label class="full">PDF format
+            <select name="pdf_format">
+              <option value="standard" selected>Standard PDF (default)</option>
+              <option value="pdfa4">PDF/A-4 (ISO 19005-4:2020)</option>
+            </select>
+            <small>PDF/A-4 preserves the existing renderer and validates with veraPDF. Requires pikepdf and a veraPDF installation on the server; if validation fails, no archival PDF is returned. This does not add PDF/UA accessibility certification.</small>
+          </label>
           <label class="full">Previous PDF
             <input type="file" name="previous_pdf" accept=".pdf,application/pdf">
             <small>Optionally reuse Title, Author, Subject, and Keywords from an earlier PDF. Values entered below override inherited metadata.</small>
