@@ -11,11 +11,11 @@
   const preset = document.createElement('select');
   preset.id = 'letterhead-preset';
   preset.name = 'letterhead_preset';
-  preset.append(new Option('Custom / none', ''), new Option('WhyDRS', 'whydrs'));
+  preset.append(new Option('Custom / none', ''), new Option('WhyDRS', 'whydrs'), new Option('BlockTransfer', 'blocktransfer'));
   presetLabel.append(preset);
 
   const help = document.createElement('small');
-  help.textContent = 'Choose WhyDRS to use the bundled logo in one click. A custom logo upload overrides the preset.';
+  help.textContent = 'Choose a bundled organization logo. A custom logo upload overrides the preset.';
   presetLabel.append(help);
   grid.insertBefore(presetLabel, logoLabel);
 
@@ -23,9 +23,14 @@
     const file = logo.files && logo.files[0];
     if (file) return;
 
-    if (preset.value === 'whydrs') {
-      preview.src = '/static/letterheads/whydrs-logo.svg';
-      preview.alt = 'WhyDRS logo preview';
+    const bundled = {
+      whydrs: { name: 'WhyDRS', path: '/static/letterheads/whydrs-logo.svg' },
+      blocktransfer: { name: 'BlockTransfer', path: '/static/letterheads/blocktransfer-logo.svg' },
+    };
+    const selected = bundled[preset.value];
+    if (selected) {
+      preview.src = selected.path;
+      preview.alt = `${selected.name} logo preview`;
       preview.style.display = 'block';
       return;
     }

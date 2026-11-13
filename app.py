@@ -40,6 +40,7 @@ app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
 LETTERHEAD_PRESETS = {
     "whydrs": Path(app.root_path) / "static" / "letterheads" / "whydrs-logo.svg",
+    "blocktransfer": Path(app.root_path) / "static" / "letterheads" / "blocktransfer-logo.svg",
 }
 
 
