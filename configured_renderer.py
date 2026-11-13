@@ -27,7 +27,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, roman
+from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, compiler_creator, roman
 from document_assets import resolve_document_image
 from emoji_renderer import EmojiParagraph as Paragraph
 
@@ -728,10 +728,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 flush_quote()
                 image_path = self._resolve_image_reference(image_match.group(1))
                 if image_path.exists():
-                    with PILImage.open(image_path) as image:
-                        width, height = image.size
-                    scale = min((6.45 * inch) / width, (2.4 * inch) / height, 1.0)
-                    story.extend([Image(str(image_path), width * scale, height * scale), Spacer(1, 8)])
+                    story.append(self.markdown_image(image_path))
                 continue
 
             if line.startswith(">"):
