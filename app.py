@@ -15,6 +15,7 @@ import json
 from flask import Flask, jsonify, render_template, request, send_file
 import pymupdf
 from werkzeug.utils import secure_filename
+from document_assets import document_in_folder, safe_upload_path, save_document_images
 
 from configured_renderer import (
     DATE_FORMATS,
@@ -27,6 +28,7 @@ from configured_renderer import (
 )
 from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
+from pdfa4_export import render_pdf as render_with_format
 from legal_style_validator import validate_legal_style
 from typography_renderer import (RENDER_STYLES, PROFESSIONAL_TYPOGRAPHY,
                                  PRESENTATION_CONTROLS, PRESENTATION_TOGGLES, TypographySettings)
@@ -73,20 +75,38 @@ def submitted_previous_pdf_metadata() -> tuple[dict[str, str], str | None]:
     }, None
 
 
-def submitted_markdown() -> tuple[str | None, str | None]:
+def submitted_markdown() -> tuple[str | None, str | None, Path | None]:
+    """Read the Markdown source and retain a safe folder-relative location."""
+    folder_files = request.files.getlist("document_files")
+    try:
+        folder_source = document_in_folder(folder_files)
+    except ValueError as exc:
+        return None, str(exc), None
     source_upload = request.files.get("source")
     markdown = request.form.get("markdown", "")
     if source_upload and source_upload.filename:
         try:
             text = source_upload.read().decode("utf-8-sig")
         except UnicodeDecodeError:
-            return None, "Markdown uploads must be UTF-8 text."
+            return None, "Markdown uploads must be UTF-8 text.", None
         finally:
             source_upload.stream.seek(0)
-        return text, None
+        return text, None, Path(secure_filename(source_upload.filename) or "document.md")
+
+    folder_path = safe_upload_path(folder_source.filename) if folder_source else None
+    if markdown.strip() and (not folder_source or truthy("edit_markdown")):
+        return markdown, None, folder_path or Path("document.md")
+    if folder_source:
+        try:
+            text = folder_source.read().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return None, "Markdown uploads must be UTF-8 text.", None
+        finally:
+            folder_source.stream.seek(0)
+        return text, None, folder_path
     if markdown.strip():
-        return markdown, None
-    return None, "Upload a Markdown file or paste Markdown text."
+        return markdown, None, Path("document.md")
+    return None, "Upload a Markdown file or folder, or paste Markdown text.", None
 
 
 def preflight_issues(markdown: str) -> list[dict[str, object]]:
@@ -164,17 +184,30 @@ def index():
 
 @app.post("/validate")
 def validate_markdown():
-    markdown, error = submitted_markdown()
+    markdown, error, source_relative = submitted_markdown()
     if error:
         return jsonify({"valid": False, "error": error, "issues": []}), 400
 
+    # Preflight must not report success for unsafe or unreadable attachments.
+    with TemporaryDirectory(prefix="pdf-compiler-validate-") as temp:
+        root = Path(temp)
+        source = root / (source_relative or Path("document.md"))
+        try:
+            save_document_images(
+                request.files.getlist("document_files"),
+                request.files.getlist("inline_images"),
+                root,
+                source,
+            )
+        except ValueError as exc:
+            return jsonify({"valid": False, "error": str(exc), "issues": []}), 400
     issues = preflight_issues(markdown or "")
     return jsonify({"valid": not issues, "issues": issues})
 
 
 @app.post("/render")
 def render_pdf():
-    markdown, error = submitted_markdown()
+    markdown, error, source_relative = submitted_markdown()
     if error:
         return jsonify({"error": error}), 400
 
@@ -211,22 +244,28 @@ def render_pdf():
     if preset and preset not in LETTERHEAD_PRESETS:
         return jsonify({"error": f"Unknown letterhead preset: {preset}"}), 400
 
-    source_upload = request.files.get("source")
     with TemporaryDirectory(prefix="pdf-compiler-") as temp:
         root = Path(temp)
-        if source_upload and source_upload.filename:
-            source_name = secure_filename(source_upload.filename) or "document.md"
-            source = root / source_name
-            source.write_text(markdown or "", encoding="utf-8")
-        else:
-            source = root / "document.md"
-            source.write_text(markdown or "", encoding="utf-8")
+        source = root / (source_relative or Path("document.md"))
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(markdown or "", encoding="utf-8")
+        try:
+            save_document_images(
+                request.files.getlist("document_files"),
+                request.files.getlist("inline_images"),
+                root,
+                source,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
+        internal_assets = root / ".compiler-internal"
+        internal_assets.mkdir()
         logo = None
         logo_upload = request.files.get("logo")
         if logo_upload and logo_upload.filename:
             logo_name = secure_filename(logo_upload.filename) or "logo.png"
-            logo = root / logo_name
+            logo = internal_assets / logo_name
             logo_upload.save(logo)
         elif preset:
             logo = LETTERHEAD_PRESETS[preset]
@@ -234,14 +273,14 @@ def render_pdf():
                 return jsonify({"error": f"Letterhead preset asset is missing: {preset}"}), 500
             # Render the bundled SVG for the image pipeline; no raster asset is required.
             with pymupdf.open(logo) as artwork:
-                logo = root / "preset-logo.png"
+                logo = internal_assets / "preset-logo.png"
                 artwork[0].get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=True).save(logo)
 
         signature = None
         signature_upload = request.files.get("signature")
         if signature_upload and signature_upload.filename:
             signature_name = secure_filename(signature_upload.filename) or "signature.png"
-            signature = root / f"signature-{signature_name}"
+            signature = internal_assets / f"signature-{signature_name}"
             signature_upload.save(signature)
 
         try:
@@ -359,8 +398,19 @@ def render_pdf():
                 hide_url_scheme=truthy("hide_url_scheme"),
                 link_color=link_color,
             )
-            renderer.build()
-        except ValueError as exc:
+            # For directory uploads, permit sibling directories inside the
+            # selected folder, but never paths outside that folder.
+            renderer.allowed_image_root = (
+                root / source_relative.parts[0]
+                if request.files.getlist("document_files") and source_relative
+                and len(source_relative.parts) > 1
+                else root
+            )
+            output_format = request.form.get("pdf_format", "standard")
+            if output_format not in {"standard", "pdfa4"}:
+                return jsonify({"error": "Unsupported PDF output format."}), 400
+            render_with_format(renderer, pdfa4=output_format == "pdfa4")
+        except (ValueError, RuntimeError) as exc:
             return jsonify({"error": str(exc)}), 400
         payload = BytesIO(output.read_bytes())
 

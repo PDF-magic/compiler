@@ -31,6 +31,7 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 - optional smart quotes in rendered text
 - section numbering: legal form such as `I.B.3.a.i`, decimal form such as `1.2.3.4.5`, or no visible numbering
 - optional visible table of contents using the generated section labels and page locations
+- image insertion and document-folder upload, including Markdown with nested raster images
 - uploaded logo or text wordmark
 - logo treatment: preserve as uploaded, auto-trim empty padding, or auto-trim and optimize for monochrome printing
 - optional handwritten signature image rendered over a signing line by a standalone `[[signature]]` Markdown tag
@@ -76,6 +77,8 @@ A standalone TOC marker enables the visible TOC even when the configurator check
 
 The preflight validator reports line and column locations for required legal-style italics such as `_See_`, `_See, e.g.,_`, `_Id._`, `_Ibid._`, `_supra_`, `_infra_`, `_available at_`, and `_note_ 4`. These checks are case-insensitive. It also checks HTTP(S) URLs for valid structure and resolvable public hostnames, rejecting malformed, nonexistent, localhost, and private-network targets. HTTP URLs must use HTTPS when the same public host can complete a valid TLS connection; HTTP remains allowed when HTTPS is unavailable. Root URLs omit the trailing slash (`https://example.com`, not `https://example.com/`), while trailing slashes on non-root paths remain allowed. Validation is read-only and does not rewrite Markdown.
 
+The web configurator can embed document images without using the CLI. Attach images to a single Markdown upload using **Image files**, then click **Insert selected images into Markdown** to edit and add image references. Alternatively, choose a **Document folder** containing exactly one Markdown file and its images; nested paths such as `![Evidence](images/evidence.png)` are preserved. PNG, JPEG, GIF, WebP, BMP and TIFF are supported. SVG, scripts, HTML, invalid images, duplicate filenames and directory traversal are rejected. Image attachments are staged in a temporary directory and are not retained after compilation. Uploads remain subject to the 20 MB request limit.
+
 The web configurator renders the entire supplied Markdown document. Remove any drafting notes or email instructions from the input before rendering. The rendered PDF opens inline in a new tab so the configurator remains available for another render.
 
 ## Signature sections
@@ -110,6 +113,42 @@ _See supra note_ {ref-a}.
 
 If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{key}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{key}` is left visible rather than being assigned a number. The previous double-braced syntax (`{{key}}`) is no longer interpolated. References and citations inside fenced code blocks or inline code spans are shown literally and never influence footnote numbering.
 
+## Optional PDF/A-4 output
+
+Standard PDF remains the default. Choose **PDF/A-4 (ISO 19005-4:2020)**
+on the Output metadata page, or use `--pdfa4` in the command-line
+compiler. Only the base PDF/A-4 profile is supported: no PDF/A-4e,
+PDF/A-4f, PDF/A-4a, PDF/A-4u, or PDF/UA claim is made.
+
+```bash
+python pdf_compiler.py filing.md --pdfa4 --output filing.pdf
+```
+
+The server must have both the `pikepdf` Python dependency (included in
+`requirements.txt`) and the [veraPDF CLI](https://verapdf.org/install/)
+installed as `verapdf` on `PATH`. veraPDF profile `4` is mandatory.
+If either prerequisite is missing or validation fails, the compiler
+returns an error **without publishing the would-be archival PDF**;
+the existing output file is left unchanged.
+
+The archival export uses the existing ReportLab rendering and page-layout
+logic, temporarily substituting embeddable TrueType fonts for standard PDF
+base fonts. This can slightly change text metrics and pagination, depending
+on fonts installed on the server. The standard-PDF renderer is unaffected.
+It then converts the generated document to PDF 2.0 using pikepdf, adds an
+sRGB ICC output intent, migrates document-info fields to XMP, sets
+`pdfaid:part=4` and `pdfaid:rev=2020`, and makes link annotations
+printable. The result is installed only after veraPDF confirms compliance.
+The renderer serializes exports under a lock because ReportLab's font
+registry is process-global.
+
+PDF/A-4 addresses long-term preservation, not the additional structural
+tagging and accessibility requirements of PDF/UA. It does not make filing
+portals accept PDF 2.0; confirm the recipient's accepted PDF versions
+before submitting. For detailed validation rules see
+[veraPDF](https://docs.verapdf.org/validation/) and the
+[PDF Association's PDF/A-4 standard overview](https://pdfa.org/resource/iso-19005-4-pdf-a-4/).
+
 ## Command line
 
 Render a Markdown file directly:
@@ -132,6 +171,7 @@ Useful options:
 --start-heading TEXT   compile only content after an exact Markdown heading
 --smart-quotes         use typographic quotes in rendered text
 --quote-inline-number-footnotes   opt in to [11] notation inside [!QUOTE] blocks
+--pdfa4                export verified PDF/A-4 (veraPDF required)
 ```
 
 For example:

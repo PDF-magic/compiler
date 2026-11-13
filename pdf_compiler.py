@@ -38,6 +38,7 @@ from reportlab.platypus import (
 
 from emoji_renderer import EmojiParagraph as Paragraph
 from page_breaks import PAGE_BREAK_SENTINEL, normalize_page_breaks
+from document_assets import resolve_document_image
 
 
 SIGNATURE_SENTINEL = "@@PDF_COMPILER_SIGNATURE_BLOCK@@"
@@ -512,6 +513,12 @@ class PdfRenderer:
 
         return create_signature_asset(self.signature)
 
+    def _resolve_image_reference(self, reference: str) -> Path:
+        """Allow only this renderer's generated signature outside the document root."""
+        if self._signature_asset is not None and reference == self._signature_asset.as_posix():
+            return self._signature_asset
+        return resolve_document_image(self.source, reference, getattr(self, "allowed_image_root", None))
+
     def _cleanup_signature_asset(self) -> None:
         finalizer = self._signature_asset_finalizer
         if finalizer is not None and finalizer.alive:
@@ -735,10 +742,10 @@ class PdfRenderer:
             placeholders[placeholder] = key
             return placeholder
 
-        rendered, refs = self.markdown_inline(
-            self.note_ref_re.sub(replace_local_ref, shielded),
-            True,
-        )
+        text = self.note_ref_re.sub(replace_local_ref, shielded)
+        if self.quote_inline_number_footnotes:
+            text = self.quotation_number_ref_re.sub(replace_local_ref, text)
+        rendered, refs = self.markdown_inline(text, True)
         for placeholder, key in placeholders.items():
             rendered = rendered.replace(
                 placeholder,
@@ -769,10 +776,7 @@ class PdfRenderer:
         body_chunks = []
         body_refs = []
         for line in body_lines:
-            if self.quote_inline_number_footnotes:
-                rendered, refs = self.quotation_inline_with_numbers(line.strip(), local_notes)
-            else:
-                rendered, refs = self.quotation_inline(line.strip(), local_notes)
+            rendered, refs = self.quotation_inline(line.strip(), local_notes)
             body_chunks.append(rendered)
             body_refs.extend(refs)
 
@@ -841,35 +845,6 @@ class PdfRenderer:
         if not flowables:
             flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
         return flowables
-
-    def quotation_inline_with_numbers(
-        self,
-        text: str,
-        local_notes: dict[str, str],
-    ) -> tuple[str, list[int]]:
-        """Render opt-in numeric source citations without touching inline code."""
-        placeholders: dict[str, str] = {}
-        shielded, code_spans = protect_inline_code(text)
-
-        def replace_local_ref(match: re.Match[str]) -> str:
-            key = match.group(1)
-            if key not in local_notes:
-                return match.group(0)
-            placeholder = f"@@QUOTEFOOTNOTE{len(placeholders)}@@"
-            placeholders[placeholder] = key
-            return placeholder
-
-        text = self.note_ref_re.sub(replace_local_ref, shielded)
-        text = self.quotation_number_ref_re.sub(replace_local_ref, text)
-        rendered, refs = self.markdown_inline(text, True)
-        for placeholder, key in placeholders.items():
-            rendered = rendered.replace(
-                placeholder,
-                f"<super>{html.escape(key)}</super>",
-            )
-        for placeholder, markup in code_spans.items():
-            rendered = rendered.replace(placeholder, markup)
-        return rendered, refs
 
     @staticmethod
     def blockquote_color(text: str) -> str | None:
@@ -1280,6 +1255,7 @@ class PdfRenderer:
 
             image_match = re.match(r"!\[[^\]]*\]\(([^)]+)\)", line.strip())
             if image_match:
+                self._resolve_image_reference(image_match.group(1))
                 flush_paragraph()
                 flush_quote()
                 image_path = (self.source.parent / image_match.group(1)).resolve()
@@ -1541,6 +1517,7 @@ def main() -> int:
     )
     parser.add_argument("--title", help="PDF document title metadata")
     parser.add_argument("--author", help="PDF document author metadata")
+    parser.add_argument("--pdfa4", action="store_true", help="Export validated PDF/A-4 (requires pikepdf and veraPDF)")
     parser.add_argument(
         "--render-style", choices=("classic", "professional"), default="classic",
         help="Presentation style (professional uses a restrained filing layout)",
@@ -1587,7 +1564,8 @@ def main() -> int:
         quote_inline_number_footnotes=args.quote_inline_number_footnotes,
         **presentation,
     )
-    pages, footnotes, continuations = renderer.build()
+    from pdfa4_export import render_pdf
+    pages, footnotes, continuations = render_pdf(renderer, pdfa4=args.pdfa4)
     print(output)
     print(f"pages: {pages}")
     print(f"footnotes: {footnotes}")
