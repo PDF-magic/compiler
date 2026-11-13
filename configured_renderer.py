@@ -28,7 +28,7 @@ from reportlab.platypus import (
 )
 
 from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, compiler_creator, roman
-from emoji_renderer import EmojiParagraph as Paragraph
+from emoji_renderer import EmojiParagraph as Paragraph, render_with_emoji_style
 from document_assets import resolve_document_image
 
 
@@ -996,6 +996,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
             author=self.author,
         )
 
+    @render_with_emoji_style
     def build(self) -> tuple[int, int, int]:
         """Render twice so a visible TOC can use the final section page locations."""
         self.output.parent.mkdir(parents=True, exist_ok=True)

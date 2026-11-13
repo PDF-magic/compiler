@@ -73,6 +73,65 @@ class PreviousPdfMetadataTests(unittest.TestCase):
         self.assertEqual(metadata["subject"], "Current Subject")
         self.assertEqual(metadata["keywords"], "current")
 
+    def test_letterhead_values_inherit_when_metadata_is_blank(self):
+        response = self.client.post(
+            "/render",
+            data={
+                "markdown": "## Body\n\nText",
+                "document_title": "Visible Filing Title",
+                "wordmark": "BlockTransfer",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        with pymupdf.open(stream=response.data, filetype="pdf") as rendered:
+            metadata = rendered.metadata
+        self.assertEqual(metadata["title"], "Visible Filing Title")
+        self.assertEqual(metadata["author"], "BlockTransfer")
+        self.assertEqual(metadata["subject"], "Visible Filing Title")
+
+    def test_explicit_metadata_precedes_letterhead_and_previous_pdf(self):
+        previous = pdf_with_metadata(
+            title="Old title", author="Old author", subject="Old subject",
+            keywords="old keywords",
+        )
+        response = self.client.post(
+            "/render",
+            data={
+                "markdown": "## Body\n\nText",
+                "document_title": "New visible title",
+                "wordmark": "New wordmark",
+                "previous_pdf": (BytesIO(previous), "old.pdf"),
+                "title": "Custom PDF title",
+                "author": "Custom author",
+                "subject": "Custom subject",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        with pymupdf.open(stream=response.data, filetype="pdf") as rendered:
+            metadata = rendered.metadata
+        self.assertEqual(metadata["title"], "Custom PDF title")
+        self.assertEqual(metadata["author"], "Custom author")
+        self.assertEqual(metadata["subject"], "Custom subject")
+        self.assertEqual(metadata["keywords"], "old keywords")
+
+    def test_letterhead_defaults_precede_previous_pdf_metadata(self):
+        previous = pdf_with_metadata(title="Old title", author="Old author", subject="Old subject")
+        response = self.client.post(
+            "/render",
+            data={
+                "markdown": "## Body\n\nText",
+                "document_title": "Current filing",
+                "wordmark": "Current organization",
+                "previous_pdf": (BytesIO(previous), "old.pdf"),
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        with pymupdf.open(stream=response.data, filetype="pdf") as rendered:
+            metadata = rendered.metadata
+        self.assertEqual(metadata["title"], "Current filing")
+        self.assertEqual(metadata["author"], "Current organization")
+        self.assertEqual(metadata["subject"], "Current filing")
+
     def test_invalid_previous_pdf_is_rejected(self):
         response = self.client.post(
             "/render",

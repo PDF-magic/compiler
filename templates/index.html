@@ -195,6 +195,8 @@
     button:hover { opacity: .9; }
     button:disabled { cursor: default; opacity: .45; }
     .compile-actions { margin-top: 20px; text-align: center; }
+    #formatted-markdown-row { justify-content: center; margin-bottom: 12px; }
+    #formatted-markdown-row[hidden] { display: none; }
     #render-button { background: var(--surface-subtle); color: var(--muted); opacity: 1; }
     #render-button.ready { background: #2E732E; color: white; }
     #compile-status { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
@@ -238,6 +240,8 @@
     }
 
     .letterhead-layout-settings { display: grid; gap: 10px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .settings-subheading { margin: 0; color: var(--text); font-size: 16px; }
+    .settings-help { margin: 0; color: var(--muted); font-size: 13px; }
     .letterhead-editor { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(190px, 1fr); gap: 14px; align-items: start; }
     .letterhead-editor[hidden], #letterhead-custom-controls[hidden] { display: none; }
     .letterhead-stage-column { min-width: 0; display: grid; gap: 8px; }
@@ -274,7 +278,7 @@
     <div class="wizard">
       <div class="wizard-progress" aria-live="polite">
         <div class="wizard-progress-row">
-          <span id="step-count" class="step-count">Step 1 of 11</span>
+          <span id="step-count" class="step-count">Step 1 of 10</span>
           <span id="step-title" class="step-title">Document</span>
         </div>
         <div class="progress-track" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>
@@ -284,14 +288,13 @@
         <button class="step-tab" type="button" data-step-target="0">Document</button>
         <button class="step-tab" type="button" data-step-target="1">Typography</button>
         <button class="step-tab" type="button" data-step-target="2">Sections</button>
-        <button class="step-tab" type="button" data-step-target="3">Metadata</button>
-        <button class="step-tab" type="button" data-step-target="4">Branding</button>
-        <button class="step-tab" type="button" data-step-target="5">Signature</button>
-        <button class="step-tab" type="button" data-step-target="6">Letterhead</button>
-        <button class="step-tab" type="button" data-step-target="7">Headers</button>
-        <button class="step-tab" type="button" data-step-target="8">Style</button>
-        <button class="step-tab" type="button" data-step-target="9">Licensing</button>
-        <button class="step-tab" type="button" data-step-target="10">Validate document</button>
+        <button class="step-tab" type="button" data-step-target="3">Branding</button>
+        <button class="step-tab" type="button" data-step-target="4">Signature</button>
+        <button class="step-tab" type="button" data-step-target="5">Letterhead</button>
+        <button class="step-tab" type="button" data-step-target="6">Headers</button>
+        <button class="step-tab" type="button" data-step-target="7">Style</button>
+        <button class="step-tab" type="button" data-step-target="8">Licensing</button>
+        <button class="step-tab" type="button" data-step-target="9">Validate document</button>
       </nav>
 
       <fieldset class="wizard-page" data-step-title="Document">
@@ -305,6 +308,22 @@
             <input id="document-folder" type="file" name="document_files" webkitdirectory directory multiple>
             <small>Choose a folder with one Markdown file and referenced raster images, including subfolders.</small>
           </label>
+          <label>Emoji artwork style
+            <select id="emoji-style" name="emoji_style">
+              {% for value, label in emoji_styles.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>The author chooses the final emoji appearance, rather than the reader's device.</small>
+          </label>
+          <label>Emoji style assets (PNG ZIP)
+            <input id="emoji-pack" name="emoji_pack" type="file" accept=".zip,application/zip">
+            <small>Non-Twemoji styles need a pack unless installed on the server. Use PNGs named like 1f600.png and check the license.</small>
+          </label>
+          <div class="full">
+            <img id="emoji-preview" class="preview" alt="Actual selected emoji artwork preview">
+            <small id="emoji-preview-status" role="status" aria-live="polite"></small>
+          </div>
           <label>Output filename
             <input name="output_name" value="document.pdf">
           </label>
@@ -315,6 +334,13 @@
               <option value="federal_register_docx">Federal Register agency draft — Word (.docx)</option>
             </select>
             <small>Word exports are editable drafts. Check court-specific rules or the Office of the Federal Register's drafting requirements before submission.</small>
+          </label>
+          <label class="full">PDF format
+            <select name="pdf_format">
+              <option value="standard" selected>Standard PDF (default)</option>
+              <option value="pdfa4">PDF/A-4 (ISO 19005-4:2020)</option>
+            </select>
+            <small>Applies to PDF exports only. PDF/A-4 needs pikepdf and veraPDF on the server; archival output is returned only after validation.</small>
           </label>
           <label>Image files
             <input id="inline-images" type="file" name="inline_images" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/tiff" multiple>
@@ -449,37 +475,6 @@
         </div>
       </fieldset>
 
-      <fieldset class="wizard-page" data-step-title="Output metadata">
-        <legend>Output metadata</legend>
-        <div class="grid">
-          <label class="full">PDF format
-            <select name="pdf_format">
-              <option value="standard" selected>Standard PDF (default)</option>
-              <option value="pdfa4">PDF/A-4 (ISO 19005-4:2020)</option>
-            </select>
-            <small>PDF/A-4 preserves the existing renderer and validates with veraPDF. Requires pikepdf and a veraPDF installation on the server; if validation fails, no archival PDF is returned. This does not add PDF/UA accessibility certification.</small>
-          </label>
-          <label class="full">Previous PDF
-            <input type="file" name="previous_pdf" accept=".pdf,application/pdf">
-            <small>Optionally reuse Title, Author, Subject, and Keywords from an earlier PDF. Values entered below override inherited metadata.</small>
-          </label>
-          <label class="full">PDF title metadata
-            <input name="title" placeholder="Comment Letter">
-            <small>Stored only as the PDF Title metadata. If blank, the source filename stem is used.</small>
-          </label>
-          <label>Author
-            <input name="author" placeholder="Organization or author">
-          </label>
-          <label>Subject
-            <input name="subject" placeholder="Document subject or filing description">
-          </label>
-          <label class="full">Keywords
-            <input name="keywords" placeholder="securities, transfer agents, comment letter">
-            <small>Stored in the PDF Keywords metadata; comma-separated terms work well.</small>
-          </label>
-        </div>
-      </fieldset>
-
       <fieldset class="wizard-page" data-step-title="Branding">
         <legend>Branding</legend>
         <div class="grid">
@@ -527,7 +522,7 @@
           </label>
           <label class="full">Visible document title
             <input name="document_title" placeholder="In re File No. SR-OCC-2025-801">
-            <small>Rendered prominently on page 1. This is separate from the PDF Title metadata above.</small>
+            <small>Rendered prominently on page 1. PDF Title and Subject metadata inherit this title unless you override them below.</small>
           </label>
           <label>Quote #
             <input name="quote_number" placeholder="Optional reference number">
@@ -595,6 +590,33 @@
                 <button type="button" id="letterhead-add-field">Add custom field</button>
                 <button class="secondary" type="button" id="letterhead-reset">Reset positions</button>
               </div>
+            </div>
+          </section>
+
+          <section class="letterhead-layout-settings full" aria-label="PDF metadata settings">
+            <h3 class="settings-subheading">PDF metadata</h3>
+            <p class="settings-help">Metadata defaults to the visible letterhead where possible. Leave a field empty to inherit; enter a value to override it without changing the printed letterhead.</p>
+            <div class="grid">
+              <label class="full">Previous PDF
+                <input type="file" name="previous_pdf" accept=".pdf,application/pdf">
+                <small>Optionally reuse metadata from an earlier PDF when neither an override nor a letterhead default supplies the value. Keywords can also be inherited this way.</small>
+              </label>
+              <label class="full">PDF title metadata
+                <input name="title" placeholder="Comment Letter" aria-describedby="metadata-title-hint">
+                <small id="metadata-title-hint">Inherits the visible document title, then the previous PDF title; otherwise uses the source filename stem. Enter a different title to override.</small>
+              </label>
+              <label>Author
+                <input name="author" placeholder="Organization or author" aria-describedby="metadata-author-hint">
+                <small id="metadata-author-hint">Inherits the branding wordmark, then the previous PDF author. Enter a different author to override.</small>
+              </label>
+              <label>Subject
+                <input name="subject" placeholder="Document subject or filing description" aria-describedby="metadata-subject-hint">
+                <small id="metadata-subject-hint">Inherits the visible document title, then the previous PDF subject. Enter a different subject to override.</small>
+              </label>
+              <label class="full">Keywords
+                <input name="keywords" placeholder="securities, transfer agents, comment letter">
+                <small>Inherits keywords from a previous PDF, if uploaded. Otherwise enter comma-separated keywords here.</small>
+              </label>
             </div>
           </section>
 
@@ -733,12 +755,15 @@
       </div>
     </div>
     <div class="compile-actions">
+      <label class="check" id="formatted-markdown-row"><input id="download-formatted-markdown" type="checkbox"> Download formatted Markdown (.md) after PDF (optional)</label>
       <button id="render-button" type="submit" aria-describedby="compile-status" disabled>Compile PDF</button>
       <p id="compile-status" role="status" aria-live="polite">Add a document, adjust settings, then click Compile PDF.</p>
+      <small>The PDF opens first. If selected, a separate normalized Markdown file downloads afterward. The original source remains unchanged.</small>
     </div>
   </form>
 </main>
 <a class="bug-report" href="https://github.com/JFWooten4/PDF-compiler/issues" target="_blank" rel="noopener noreferrer" aria-label="Report a bug on GitHub">🐛 Report a bug</a>
+<script src="/static/markdown-download.js"></script>
 <script>
   const themeToggle = document.getElementById('theme-toggle');
 
@@ -783,6 +808,8 @@
 
   const form = document.getElementById('compiler-form');
   const outputFormat = document.getElementById('output-format');
+  const formattedMarkdownOption = document.getElementById('download-formatted-markdown');
+  const formattedMarkdownRow = document.getElementById('formatted-markdown-row');
   const isWord = () => outputFormat.value !== 'pdf';
   const outputName = () => (form.elements.output_name.value || 'document')
     .replace(/\.(?:pdf|docx)$/i, '') + (isWord() ? '.docx' : '.pdf');
@@ -958,25 +985,49 @@
   outputFormat.addEventListener('change', () => {
     form.elements.output_name.value = outputName();
     renderButton.textContent = isWord() ? 'Export Word' : 'Compile PDF';
+    formattedMarkdownRow.hidden = isWord();
   });
-  form.addEventListener('input', invalidateCompilation);
-  form.addEventListener('change', invalidateCompilation);
+  formattedMarkdownRow.hidden = isWord();
+  form.addEventListener('input', event => {
+    if (event.target !== formattedMarkdownOption) invalidateCompilation();
+  });
+  form.addEventListener('change', event => {
+    if (event.target !== formattedMarkdownOption) invalidateCompilation();
+  });
+  let submitting = false;
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (preparedPdf) {
-      if (isWord()) downloadWord(preparedPdf);
-      else window.open(preparedPdf, '_blank', 'noopener');
-      return;
-    }
-    // The PDF opens in a new tab, while Word triggers a download.
-    const preview = isWord() ? null : window.open('about:blank', '_blank');
+    if (submitting) return;
+    submitting = true;
+    const wordExport = isWord();
+    // Open the PDF tab synchronously before any awaits to avoid popup blockers.
+    const preview = wordExport ? null : window.open('about:blank', '_blank');
     if (preview) preview.opener = null;
-    await prepareCompilation();
-    if (preparedPdf) {
-      if (isWord()) downloadWord(preparedPdf);
-      else if (preview && !preview.closed) preview.location.replace(preparedPdf);
-    } else {
-      preview?.close();
+    try {
+      if (!preparedPdf) await prepareCompilation();
+      if (!preparedPdf) {
+        preview?.close();
+        return;
+      }
+      if (wordExport) {
+        downloadWord(preparedPdf);
+        return;
+      }
+      if (!preview || preview.closed) {
+        compileStatus.textContent = 'PDF compiled, but the preview was blocked. Allow popups and click Compile PDF again.';
+        return;
+      }
+      preview.location.replace(preparedPdf);
+      // Explicit opt-in only: keep formatting separate from the PDF renderer.
+      if (formattedMarkdownOption.checked) {
+        try {
+          await window.PdfMarkdownDownload.downloadFormattedMarkdown(documentFormData());
+        } catch (error) {
+          compileStatus.textContent = `PDF opened, but the formatted Markdown download failed: ${error.message}`;
+        }
+      }
+    } finally {
+      submitting = false;
     }
   });
 
