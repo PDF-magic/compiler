@@ -171,6 +171,7 @@ Useful options:
 --start-heading TEXT   compile only content after an exact Markdown heading
 --smart-quotes         use typographic quotes in rendered text
 --quote-inline-number-footnotes   opt in to [11] notation inside [!QUOTE] blocks
+--quote-source-before-footnotes   put a quotation's source above its local footnotes
 --pdfa4                export verified PDF/A-4 (veraPDF required)
 ```
 
@@ -283,7 +284,7 @@ To preserve footnotes from the quoted source, define them inside the quotation. 
 > [!SOURCE] Author, *Work*
 ```
 
-Quote-local footnotes render inside the quotation beneath the right-aligned source attribution. Each `[!QUOTE]` has its own labels, so different quotations can each use footnote 17 with different definitions. An ordinary document footnote outside the quotation still uses `[^key]` and receives the document's sequential numbering.
+By default, quote-local footnotes render inside the quotation after its text and before the right-aligned source attribution. To place the source attribution immediately after the quotation text with its local footnotes underneath, check **Place quotation source attribution before its footnotes** under **Sections & TOC**, or use `--quote-source-before-footnotes` on the CLI. This optional layout works with both caret-prefixed and inline numbered quotation footnotes, and does not change ordinary document footnotes. Each `[!QUOTE]` has its own labels, so different quotations can each use footnote 17 with different definitions. An ordinary document footnote outside the quotation still uses `[^key]` and receives the document's sequential numbering.
 
 **Optional inline numbered quotation footnotes:** Check **Enable inline numbered footnotes ([11]) in sourced blockquotes** under **Sections & TOC**, or pass `--quote-inline-number-footnotes` on the CLI. This allows copied source text of the form `[11]` and `[11]:` *only inside* a `[!QUOTE]` block, provided a matching local definition exists:
 

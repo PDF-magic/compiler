@@ -12,11 +12,15 @@ from typography_renderer import TypographyPdfRenderer, TypographySettings
 
 class QuotationTests(unittest.TestCase):
     def _renderer(self, root: Path, text: str, *, typography=None,
-                  quote_inline_number_footnotes=False):
+                  quote_inline_number_footnotes=False,
+                  quote_source_before_footnotes=False):
         source = root / "source.md"
         source.write_text(text, encoding="utf-8")
         renderer_class = TypographyPdfRenderer if typography else PdfRenderer
-        kwargs = {"quote_inline_number_footnotes": quote_inline_number_footnotes}
+        kwargs = {
+            "quote_inline_number_footnotes": quote_inline_number_footnotes,
+            "quote_source_before_footnotes": quote_source_before_footnotes,
+        }
         if typography:
             kwargs["typography"] = typography
         return renderer_class(source, root / "output.pdf", **kwargs)
@@ -84,6 +88,7 @@ class QuotationTests(unittest.TestCase):
                     "[^main]: Document footnote."
                 ),
                 quote_inline_number_footnotes=True,
+                quote_source_before_footnotes=True,
             )
             flowables = renderer.blockquote_flowables(
                 [
@@ -130,6 +135,7 @@ class QuotationTests(unittest.TestCase):
                     "[^main]: Document footnote."
                 ),
                 quote_inline_number_footnotes=True,
+                quote_source_before_footnotes=True,
             )
             _pages, footnotes, _continuations = renderer.build()
 
@@ -144,6 +150,78 @@ class QuotationTests(unittest.TestCase):
                 self.assertLess(source.y0, note_four.y0)
                 self.assertLess(note_four.y0, note_seventeen.y0)
 
+
+    def test_quote_local_source_defaults_to_after_footnotes(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            markdown = (
+                "> [!QUOTE]\n"
+                "> Passage.[^7]\n"
+                "> [^7]: Seventh source note.\n"
+                "> [!SOURCE] Historian"
+            )
+            lines = [
+                "[!QUOTE]", "Passage.[^7]", "[^7]: Seventh source note.",
+                "[!SOURCE] Historian",
+            ]
+            default = self._renderer(root, markdown)
+            self.assertFalse(default.quote_source_before_footnotes)
+            body, note, source = default.blockquote_flowables(lines)
+            self.assertEqual(body.getPlainText(), "Passage.7")
+            self.assertEqual(note.getPlainText(), "7. Seventh source note.")
+            self.assertEqual(source.getPlainText(), "— Historian")
+            self.assertFalse(note.style.quoteRoundBottom)
+            self.assertTrue(source.style.quoteRoundBottom)
+
+            enabled = self._renderer(
+                root, markdown, quote_source_before_footnotes=True,
+            )
+            body, source, note = enabled.blockquote_flowables(lines)
+            self.assertEqual(body.getPlainText(), "Passage.7")
+            self.assertEqual(source.getPlainText(), "— Historian")
+            self.assertEqual(note.getPlainText(), "7. Seventh source note.")
+            self.assertFalse(source.style.quoteRoundBottom)
+            self.assertTrue(note.style.quoteRoundBottom)
+
+    def test_source_order_toggle_preserves_quotes_without_local_notes(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            markdown = "> [!QUOTE]\n> Passage.\n> [!SOURCE] Historian"
+            lines = ["[!QUOTE]", "Passage.", "[!SOURCE] Historian"]
+            for enabled in (False, True):
+                renderer = self._renderer(
+                    root, markdown, quote_source_before_footnotes=enabled,
+                )
+                body, source = renderer.blockquote_flowables(lines)
+                self.assertEqual(body.getPlainText(), "Passage.")
+                self.assertEqual(source.getPlainText(), "— Historian")
+                self.assertTrue(source.style.quoteRoundBottom)
+
+    def test_web_source_order_opt_in_changes_rendered_pdf(self):
+        from app import app
+
+        markdown = (
+            "> [!QUOTE]\n"
+            "> Passage.[^7]\n"
+            "> [^7]: Seventh source note.\n"
+            "> [!SOURCE] Historian"
+        )
+        for enabled in (False, True):
+            data = {"markdown": markdown}
+            if enabled:
+                data["quote_source_before_footnotes"] = "1"
+            response = app.test_client().post("/render", data=data)
+            self.assertEqual(response.status_code, 200, response.data[:500])
+            with pymupdf.open(stream=response.data, filetype="pdf") as pdf:
+                page = pdf[0]
+                body = page.search_for("Passage.")[0]
+                source = page.search_for("— Historian")[0]
+                note = page.search_for("7. Seventh source note.")[0]
+                self.assertLess(body.y0, min(note.y0, source.y0))
+                if enabled:
+                    self.assertLess(source.y0, note.y0)
+                else:
+                    self.assertLess(note.y0, source.y0)
 
     def test_quote_local_numbers_can_repeat_in_separate_quotes(self):
         with TemporaryDirectory() as temp:

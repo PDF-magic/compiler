@@ -445,6 +445,7 @@ class PdfRenderer:
         start_heading: str | None = None,
         smart_quotes: bool = False,
         quote_inline_number_footnotes: bool = False,
+        quote_source_before_footnotes: bool = False,
         underline_links: bool = True,
         link_color: str = LINK_COLOR,
     ):
@@ -457,6 +458,7 @@ class PdfRenderer:
         self.author = author or ""
         self.smart_quotes = smart_quotes
         self.quote_inline_number_footnotes = quote_inline_number_footnotes
+        self.quote_source_before_footnotes = quote_source_before_footnotes
         self.underline_links = underline_links
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", link_color):
             raise ValueError("Link color must be a six-digit hex color, such as #2E732E.")
@@ -798,11 +800,10 @@ class PdfRenderer:
                 )
             flowables.append(RefParagraph(body_text, body_style, body_refs))
 
-        if source:
+        def append_source(has_following: bool) -> None:
             rendered_source, source_refs = self.quotation_inline(source, local_notes)
             source_style = self.styles["QuotationSourceX"]
             has_preceding = bool(flowables)
-            has_following = bool(local_note_items)
             if has_preceding or has_following:
                 source_style = ParagraphStyle(
                     "QuotationSourceJoinedX",
@@ -818,11 +819,16 @@ class PdfRenderer:
                 RefParagraph(f"— {rendered_source}", source_style, source_refs)
             )
 
+        if source and self.quote_source_before_footnotes:
+            append_source(has_following=bool(local_note_items))
+
         for index, (key, note_text) in enumerate(local_note_items):
             rendered_note, note_refs = self.quotation_inline(note_text, local_notes)
             note_style = self.styles["QuotationFootnoteX"]
             has_preceding = bool(flowables)
-            has_following = index < len(local_note_items) - 1
+            has_following = index < len(local_note_items) - 1 or bool(
+                source and not self.quote_source_before_footnotes
+            )
             if has_preceding or has_following:
                 note_style = ParagraphStyle(
                     f"QuotationFootnoteJoinedX{index}",
@@ -841,6 +847,9 @@ class PdfRenderer:
                     note_refs,
                 )
             )
+
+        if source and not self.quote_source_before_footnotes:
+            append_source(has_following=False)
 
         if not flowables:
             flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
@@ -1536,6 +1545,11 @@ def main() -> int:
         action="store_true",
         help="Interpret [11] citations and [11]: definitions inside [!QUOTE] blocks (off by default)",
     )
+    parser.add_argument(
+        "--quote-source-before-footnotes",
+        action="store_true",
+        help="Place [!SOURCE] attribution before quote-local footnotes (off by default)",
+    )
     args = parser.parse_args()
 
     output = args.output or args.source.with_suffix(".pdf")
@@ -1562,6 +1576,7 @@ def main() -> int:
         start_heading=args.start_heading,
         smart_quotes=args.smart_quotes,
         quote_inline_number_footnotes=args.quote_inline_number_footnotes,
+        quote_source_before_footnotes=args.quote_source_before_footnotes,
         **presentation,
     )
     from pdfa4_export import render_pdf
