@@ -219,7 +219,7 @@ def validate_markdown():
 
 @app.post("/format")
 def format_markdown_source():
-    markdown, error = submitted_markdown()
+    markdown, error, _source_relative = submitted_markdown()
     if error:
         return jsonify({"error": error}), 400
 
