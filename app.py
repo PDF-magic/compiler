@@ -177,7 +177,8 @@ def index():
         '  <script src="/static/letterhead-presets.js"></script>\n'
         '  <script src="/static/plain-link-options.js"></script>\n'
         '  <script src="/static/render-styles.js"></script>\n'
-        '  <script src="/static/configuration.js"></script>\n</body>',
+        '  <script src="/static/configuration.js"></script>\n'
+        '  <script src="/static/metadata-inheritance.js"></script>\n</body>',
         1,
     )
 
@@ -237,8 +238,21 @@ def render_pdf():
     if error:
         return jsonify({"error": error}), 400
 
+    # PDF information follows the visible letterhead unless the user supplied
+    # an explicit metadata override. Imported metadata fills any remaining gaps.
+    letterhead_metadata = {
+        "title": request.form.get("document_title", "").strip(),
+        "author": request.form.get("wordmark", "").strip(),
+        "subject": request.form.get("document_title", "").strip(),
+    }
+
     def metadata_value(name: str) -> str | None:
-        return request.form.get(name, "").strip() or previous_metadata.get(name) or None
+        return (
+            request.form.get(name, "").strip()
+            or letterhead_metadata.get(name)
+            or previous_metadata.get(name)
+            or None
+        )
 
     preset = request.form.get("letterhead_preset", "").strip()
     if preset and preset not in LETTERHEAD_PRESETS:

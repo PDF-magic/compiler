@@ -26,8 +26,8 @@ Then open `http://127.0.0.1:5000`.
 The configurator accepts an uploaded Markdown file or pasted Markdown and lets you control the generated PDF without modifying the source text. Settings include:
 
 - output filename
-- PDF metadata: document title, author, subject, and keywords
-- optional previous PDF upload that reuses Title, Author, Subject, and Keywords when the corresponding metadata fields are blank
+- PDF metadata beneath Letterhead: Title and Subject inherit the visible document title, Author inherits the wordmark, and each can be overridden independently
+- optional previous PDF upload that fills otherwise-unset Title, Author, Subject, and Keywords; manual metadata values take priority
 - optional smart quotes in rendered text
 - section numbering: legal form such as `I.B.3.a.i`, decimal form such as `1.2.3.4.5`, or no visible numbering
 - optional visible table of contents using the generated section labels and page locations
@@ -116,7 +116,7 @@ If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The
 ## Optional PDF/A-4 output
 
 Standard PDF remains the default. Choose **PDF/A-4 (ISO 19005-4:2020)**
-on the Output metadata page, or use `--pdfa4` in the command-line
+on the Document page, or use `--pdfa4` in the command-line
 compiler. Only the base PDF/A-4 profile is supported: no PDF/A-4e,
 PDF/A-4f, PDF/A-4a, PDF/A-4u, or PDF/UA claim is made.
 
