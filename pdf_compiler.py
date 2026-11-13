@@ -742,10 +742,10 @@ class PdfRenderer:
             placeholders[placeholder] = key
             return placeholder
 
-        rendered, refs = self.markdown_inline(
-            self.note_ref_re.sub(replace_local_ref, shielded),
-            True,
-        )
+        text = self.note_ref_re.sub(replace_local_ref, shielded)
+        if self.quote_inline_number_footnotes:
+            text = self.quotation_number_ref_re.sub(replace_local_ref, text)
+        rendered, refs = self.markdown_inline(text, True)
         for placeholder, key in placeholders.items():
             rendered = rendered.replace(
                 placeholder,
@@ -776,10 +776,7 @@ class PdfRenderer:
         body_chunks = []
         body_refs = []
         for line in body_lines:
-            if self.quote_inline_number_footnotes:
-                rendered, refs = self.quotation_inline_with_numbers(line.strip(), local_notes)
-            else:
-                rendered, refs = self.quotation_inline(line.strip(), local_notes)
+            rendered, refs = self.quotation_inline(line.strip(), local_notes)
             body_chunks.append(rendered)
             body_refs.extend(refs)
 
@@ -843,35 +840,6 @@ class PdfRenderer:
         if not flowables:
             flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
         return flowables
-
-    def quotation_inline_with_numbers(
-        self,
-        text: str,
-        local_notes: dict[str, str],
-    ) -> tuple[str, list[int]]:
-        """Render opt-in numeric source citations without touching inline code."""
-        placeholders: dict[str, str] = {}
-        shielded, code_spans = protect_inline_code(text)
-
-        def replace_local_ref(match: re.Match[str]) -> str:
-            key = match.group(1)
-            if key not in local_notes:
-                return match.group(0)
-            placeholder = f"@@QUOTEFOOTNOTE{len(placeholders)}@@"
-            placeholders[placeholder] = key
-            return placeholder
-
-        text = self.note_ref_re.sub(replace_local_ref, shielded)
-        text = self.quotation_number_ref_re.sub(replace_local_ref, text)
-        rendered, refs = self.markdown_inline(text, True)
-        for placeholder, key in placeholders.items():
-            rendered = rendered.replace(
-                placeholder,
-                f"<super>{html.escape(key)}</super>",
-            )
-        for placeholder, markup in code_spans.items():
-            rendered = rendered.replace(placeholder, markup)
-        return rendered, refs
 
     @staticmethod
     def blockquote_color(text: str) -> str | None:
