@@ -152,6 +152,7 @@ class RefParagraph(Paragraph):
 class TrackingDoc(SimpleDocTemplate):
     def __init__(self, *args, **kwargs):
         self.page_refs: dict[int, list[int]] = {}
+        self._outline_levels: list[int] = []
         super().__init__(*args, **kwargs)
 
     def afterFlowable(self, flowable):
@@ -165,7 +166,15 @@ class TrackingDoc(SimpleDocTemplate):
             title, level = outline
             key = f"h-{self.page}-{abs(hash(title))}"
             self.canv.bookmarkPage(key)
-            self.canv.addOutlineEntry(title, key, level=level, closed=False)
+            # ReportLab requires a contiguous outline depth starting at zero.
+            # Nest by the nearest preceding shallower heading, even when source
+            # headings skip levels or the first heading is not top-level.
+            while self._outline_levels and self._outline_levels[-1] >= level:
+                self._outline_levels.pop()
+            self._outline_levels.append(level)
+            self.canv.addOutlineEntry(
+                title, key, level=len(self._outline_levels) - 1, closed=False
+            )
 
 
 def roman(number: int) -> str:
