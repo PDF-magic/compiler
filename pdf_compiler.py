@@ -1020,6 +1020,21 @@ class PdfRenderer:
             text,
         ).strip()
 
+    def markdown_image(self, image_path: Path) -> Image:
+        """Size embedded Markdown images to the document's available body frame."""
+        with PILImage.open(image_path) as source_image:
+            width, height = source_image.size
+
+        # SimpleDocTemplate frames have 6-point padding on every edge.
+        # Reserve the following 8-point gap and 1 point for fit-rounding safety.
+        max_width = min(6.45 * inch, self.page_width - self.left - self.right - 12)
+        max_height = self.page_height - self.top - self.bottom - 12 - 8 - 1
+        scale = min(max_width / width, max_height / height, 1.0)
+
+        flowable = Image(str(image_path), width * scale, height * scale)
+        flowable.spaceAfter = 8
+        return flowable
+
     def build_story(self, extra_pages: int = 0):
         story = []
         paragraph_lines: list[str] = []
@@ -1104,13 +1119,7 @@ class PdfRenderer:
                 flush_quote()
                 image_path = (self.source.parent / image_match.group(1)).resolve()
                 if image_path.exists():
-                    with PILImage.open(image_path) as image:
-                        width, height = image.size
-                    scale = min((6.45 * inch) / width, (2.4 * inch) / height, 1.0)
-                    story += [
-                        Image(str(image_path), width * scale, height * scale),
-                        Spacer(1, 8),
-                    ]
+                    story.append(self.markdown_image(image_path))
                 continue
 
             if line.startswith(">"):
