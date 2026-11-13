@@ -102,3 +102,34 @@ console.log('Configuration round-trip, preset overrides, validation, and documen
   assert.throws(()=>importConfiguration(fields.form,bad));
   assert.deepEqual(exportConfiguration(fields.form),disabled);
 }
+
+{
+  const { inheritedMetadataValues, updateMetadataHints } = require('../static/metadata-inheritance.js');
+  const fields = new Map(Object.entries({
+    document_title: { value: 'Comment letter' },
+    wordmark: { value: 'BlockTransfer' },
+    title: { value: '', placeholder: 'PDF title', dataset: {} },
+    author: { value: 'Custom author', placeholder: 'Author', dataset: {} },
+    subject: { value: '', placeholder: 'Subject', dataset: {} },
+  }));
+  const form = { elements: { namedItem: name => fields.get(name) } };
+  const hints = new Map(['title', 'author', 'subject'].map(name =>
+    ['metadata-' + name + '-hint', { textContent: '' }]));
+  const root = { getElementById: id => hints.get(id) };
+  assert.deepEqual(inheritedMetadataValues(form), {
+    title: 'Comment letter', author: 'BlockTransfer', subject: 'Comment letter',
+  });
+  updateMetadataHints(form, root);
+  assert.equal(fields.get('title').placeholder, 'Comment letter');
+  assert.equal(fields.get('subject').placeholder, 'Comment letter');
+  assert.equal(fields.get('author').value, 'Custom author', 'Explicit metadata must remain intact');
+  fields.get('document_title').value = 'Updated filing';
+  updateMetadataHints(form, root);
+  assert.equal(fields.get('title').placeholder, 'Updated filing');
+  assert.equal(fields.get('title').value, '', 'Inherited placeholders do not become overrides');
+  fields.get('document_title').value = '';
+  updateMetadataHints(form, root);
+  assert.equal(fields.get('title').placeholder, 'PDF title');
+  assert.match(hints.get('metadata-title-hint').textContent, /previous PDF/);
+}
+console.log('Letterhead metadata inheritance previews passed.');
