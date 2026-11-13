@@ -1512,6 +1512,7 @@ def main() -> int:
     )
     parser.add_argument("--title", help="PDF document title metadata")
     parser.add_argument("--author", help="PDF document author metadata")
+    parser.add_argument("--pdfa4", action="store_true", help="Export validated PDF/A-4 (requires pikepdf and veraPDF)")
     parser.add_argument(
         "--render-style", choices=("classic", "professional"), default="classic",
         help="Presentation style (professional uses a restrained filing layout)",
@@ -1558,7 +1559,8 @@ def main() -> int:
         quote_inline_number_footnotes=args.quote_inline_number_footnotes,
         **presentation,
     )
-    pages, footnotes, continuations = renderer.build()
+    from pdfa4_export import render_pdf
+    pages, footnotes, continuations = render_pdf(renderer, pdfa4=args.pdfa4)
     print(output)
     print(f"pages: {pages}")
     print(f"footnotes: {footnotes}")
