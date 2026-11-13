@@ -29,6 +29,7 @@ from reportlab.platypus import (
 
 from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, compiler_creator, roman
 from emoji_renderer import EmojiParagraph as Paragraph
+from document_assets import resolve_document_image
 
 
 DATE_FORMATS = {
@@ -723,6 +724,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
 
             image_match = re.match(r"!\[[^\]]*\]\(([^)]+)\)", line.strip())
             if image_match:
+                self._resolve_image_reference(image_match.group(1))
                 flush_paragraph()
                 flush_quote()
                 image_path = (self.source.parent / image_match.group(1)).resolve()

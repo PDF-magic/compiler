@@ -298,8 +298,12 @@
         <legend>Document</legend>
         <div class="grid">
           <label>Markdown file
-            <input type="file" name="source" accept=".md,.markdown,text/markdown,text/plain">
-            <small>If supplied, this takes precedence over pasted Markdown.</small>
+            <input id="source-file" type="file" name="source" accept=".md,.markdown,text/markdown,text/plain">
+            <small>Single-file uploads still work. Use Insert selected images to edit their contents.</small>
+          </label>
+          <label>Document folder
+            <input id="document-folder" type="file" name="document_files" webkitdirectory directory multiple>
+            <small>Choose a folder with one Markdown file and referenced raster images, including subfolders.</small>
           </label>
           <label>Output filename
             <input name="output_name" value="document.pdf">
@@ -312,10 +316,19 @@
             </select>
             <small>Word exports are editable drafts. Check court-specific rules or the Office of the Federal Register's drafting requirements before submission.</small>
           </label>
-          <label class="full">Or paste Markdown
+          <label>Image files
+            <input id="inline-images" type="file" name="inline_images" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/tiff" multiple>
+            <small>Attach image files individually or use the document folder picker.</small>
+          </label>
+          <label class="full">Or paste / edit Markdown
             <small><code># Title</code> · <code>## Subtitle or section heading</code></small>
             <textarea id="markdown" name="markdown" placeholder="# Title&#10;&#10;## Subtitle or section heading&#10;&#10;Your document…"></textarea>
           </label>
+          <input id="edit-markdown" type="hidden" name="edit_markdown" value="0">
+          <div class="full">
+            <button id="insert-images" class="secondary" type="button">Insert selected images into Markdown</button>
+            <small id="image-upload-status" role="status" aria-live="polite">Embedded images are temporary and must be PNG, JPEG, GIF, WebP, BMP or TIFF (not SVG).</small>
+          </div>
 
         </div>
       </fieldset>
@@ -811,8 +824,79 @@
   let compileVersion = 0;
   let compileRequest;
 
+  const sourceFile = document.getElementById('source-file');
+  const documentFolder = document.getElementById('document-folder');
+  const inlineImages = document.getElementById('inline-images');
+  const markdownEditor = document.getElementById('markdown');
+  const editMarkdown = document.getElementById('edit-markdown');
+  const imageStatus = document.getElementById('image-upload-status');
+
+  // Folder and single Markdown uploads are mutually exclusive.
+  sourceFile.addEventListener('change', () => {
+    if (sourceFile.files.length) {
+      documentFolder.value = '';
+      editMarkdown.value = '0';
+    }
+  });
+  documentFolder.addEventListener('change', () => {
+    if (documentFolder.files.length) {
+      sourceFile.value = '';
+      editMarkdown.value = '0';
+      imageStatus.textContent = documentFolder.files.length + ' folder files selected.';
+    }
+  });
+  markdownEditor.addEventListener('input', () => { editMarkdown.value = '1'; });
+
+  document.getElementById('insert-images').addEventListener('click', async () => {
+    const images = Array.from(inlineImages.files);
+    if (!images.length) {
+      imageStatus.textContent = 'Select one or more image files first.';
+      return;
+    }
+    // Restrict syntax before inserting into Markdown. Never interpolate
+    // supplied file names into innerHTML or an executable script context.
+    if (images.some(file => !/^[A-Za-z0-9._ -]+\.(png|jpe?g|gif|webp|bmp|tiff?)$/i.test(file.name))) {
+      imageStatus.textContent = 'Image names may contain only letters, numbers, spaces, dots, dashes and underscores.';
+      return;
+    }
+    if (sourceFile.files.length) {
+      markdownEditor.value = await sourceFile.files[0].text();
+      sourceFile.value = '';
+    } else if (documentFolder.files.length && editMarkdown.value !== '1') {
+      const sources = Array.from(documentFolder.files)
+        .filter(file => /\.(md|markdown)$/i.test(file.name));
+      if (sources.length === 1) markdownEditor.value = await sources[0].text();
+      else if (sources.length > 1) {
+        imageStatus.textContent = 'Choose a folder containing exactly one Markdown file.';
+        return;
+      }
+    }
+    editMarkdown.value = '1';
+    const lines = images.map(file => {
+      const label = file.name.replace(/\.[^.]+$/, '');
+      return '![' + label + '](' + file.name + ')';
+    }).join('\n\n');
+    const start = markdownEditor.selectionStart;
+    markdownEditor.setRangeText('\n\n' + lines + '\n\n', start, markdownEditor.selectionEnd, 'end');
+    markdownEditor.dispatchEvent(new Event('input', { bubbles: true }));
+    markdownEditor.focus();
+    imageStatus.textContent = images.length + ' image reference(s) inserted. They will be embedded in the PDF.';
+  });
+
+  function documentFormData() {
+    const data = new FormData(form);
+    // Directory inputs ordinarily lose hierarchy in multipart filenames.
+    // Preserve the browser-provided relative path explicitly.
+    data.delete('document_files');
+    for (const file of documentFolder.files) {
+      data.append('document_files', file, file.webkitRelativePath || file.name);
+    }
+    return data;
+  }
+
   function hasDocument() {
-    return Boolean(form.elements.source.files.length || form.elements.markdown.value.trim());
+    return Boolean(sourceFile.files.length || markdownEditor.value.trim()
+      || Array.from(documentFolder.files).some(file => /\.(md|markdown)$/i.test(file.name)));
   }
 
   function invalidateCompilation() {
@@ -845,7 +929,7 @@
     renderButton.disabled = true;
     compileStatus.textContent = isWord() ? 'Compiling Word document…' : 'Compiling PDF…';
     try {
-      const response = await fetch('/render', { method: 'POST', body: new FormData(form), signal: request.signal });
+      const response = await fetch('/render', { method: 'POST', body: documentFormData(), signal: request.signal });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.error || 'Compilation failed. Check your document and settings.');
@@ -964,7 +1048,7 @@
   async function runValidation() {
     validateButton.disabled = true;
     try {
-      const response = await fetch('/validate', { method: 'POST', body: new FormData(form) });
+      const response = await fetch('/validate', { method: 'POST', body: documentFormData() });
       const result = await response.json();
       return showValidation(result);
     } catch (error) {
