@@ -43,6 +43,19 @@ class EndnotePlacementTests(unittest.TestCase):
             [("Alpha", [1]), ("Beta", [2])],
         )
 
+    def test_code_examples_do_not_change_endnote_section_or_number(self):
+        renderer = self.renderer_for(
+            "# Alpha\n```markdown\n[^a]\n{a}\n```\n"
+            "# Beta\nActual note.[^a] `[^a]`\n\n[^a]: Text.\n",
+            "end_h1",
+        )
+        self.assertEqual(renderer.nums, {"a": 1})
+        self.assertEqual(renderer._endnote_groups(), [("Beta", [1])])
+        code_lines = [flowable.getPlainText() for flowable in renderer.build_story()
+                      if hasattr(flowable, "getPlainText")]
+        self.assertIn("[^a]", code_lines)
+        self.assertIn("{a}", code_lines)
+
     def test_endnotes_render_in_document_flow_without_continuation_pages(self):
         renderer = self.renderer_for(
             "Alpha.[^a]\n\n[^a]: First note.\n",

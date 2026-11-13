@@ -16,11 +16,11 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
     def test_interpolates_assigned_note_number(self):
         temp, renderer = self.renderer_for(
-            """First point.[^ref-a]\n\nLater, see note {{ref-a}}.\n\n[^ref-a]: First note.\n"""
+            """First point.[^ref-a]\n\nLater, see note {ref-a}.\n\n[^ref-a]: First note.\n"""
         )
         self.addCleanup(temp.cleanup)
 
-        rendered, refs = renderer.markdown_inline("Later, see note {{ref-a}}.")
+        rendered, refs = renderer.markdown_inline("Later, see note {ref-a}.")
         self.assertEqual(
             rendered,
             'Later, see note <link href="#footnote-1">1</link>.',
@@ -29,12 +29,12 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
     def test_uses_final_number_after_other_notes(self):
         temp, renderer = self.renderer_for(
-            """Alpha.[^ref-a]\nBeta.[^ref-b]\nGamma.[^ref-c]\n\nSee notes {{ref-a}} and {{ref-c}}.\n\n[^ref-a]: A.\n[^ref-b]: B.\n[^ref-c]: C.\n"""
+            """Alpha.[^ref-a]\nBeta.[^ref-b]\nGamma.[^ref-c]\n\nSee notes {ref-a} and {ref-c}.\n\n[^ref-a]: A.\n[^ref-b]: B.\n[^ref-c]: C.\n"""
         )
         self.addCleanup(temp.cleanup)
 
         self.assertEqual(renderer.nums, {"ref-a": 1, "ref-b": 2, "ref-c": 3})
-        rendered, _ = renderer.markdown_inline("See notes {{ref-a}} and {{ref-c}}.")
+        rendered, _ = renderer.markdown_inline("See notes {ref-a} and {ref-c}.")
         self.assertEqual(
             rendered,
             'See notes <link href="#footnote-1">1</link> and '
@@ -43,11 +43,11 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
     def test_placeholder_can_appear_before_citation(self):
         temp, renderer = self.renderer_for(
-            """Later note number: {{ref-b}}.\n\nAlpha.[^ref-a]\nBeta.[^ref-b]\n\n[^ref-a]: A.\n[^ref-b]: B.\n"""
+            """Later note number: {ref-b}.\n\nAlpha.[^ref-a]\nBeta.[^ref-b]\n\n[^ref-a]: A.\n[^ref-b]: B.\n"""
         )
         self.addCleanup(temp.cleanup)
 
-        rendered, _ = renderer.markdown_inline("Later note number: {{ref-b}}.")
+        rendered, _ = renderer.markdown_inline("Later note number: {ref-b}.")
         self.assertEqual(
             rendered,
             'Later note number: <link href="#footnote-2">2</link>.',
@@ -55,12 +55,86 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
     def test_repeated_citation_keeps_one_number(self):
         temp, renderer = self.renderer_for(
-            """Alpha.[^ref-a]\nAgain.[^ref-a]\n\nSee note {{ref-a}}.\n\n[^ref-a]: A.\n"""
+            """Alpha.[^ref-a]\nAgain.[^ref-a]\n\nSee note {ref-a}.\n\n[^ref-a]: A.\n"""
         )
         self.addCleanup(temp.cleanup)
 
         self.assertEqual(renderer.order, ["ref-a"])
         self.assertEqual(renderer.nums["ref-a"], 1)
+
+    def test_single_brace_reference_with_whitespace(self):
+        temp, renderer = self.renderer_for(
+            "Alpha.[^ref-a]\n\n[^ref-a]: A.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        rendered, refs = renderer.markdown_inline("See note { ref-a }.")
+        self.assertEqual(
+            rendered,
+            'See note <link href="#footnote-1">1</link>.',
+        )
+        self.assertEqual(refs, [])
+
+    def test_old_double_brace_reference_is_not_partly_replaced(self):
+        temp, renderer = self.renderer_for(
+            "Alpha.[^ref-a]\n\n[^ref-a]: A.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        rendered, refs = renderer.markdown_inline("Old {{ref-a}}; new {ref-a}.")
+        self.assertEqual(
+            rendered,
+            'Old {{ref-a}}; new <link href="#footnote-1">1</link>.',
+        )
+        self.assertEqual(refs, [])
+
+    def test_fenced_code_keeps_references_and_definitions_literal(self):
+        temp, renderer = self.renderer_for(
+            "Example.[^real]\n\n"
+            "```markdown\n{real} [^fake]\n[^fake]: Code only.\n```\n\n"
+            "[^real]: Real footnote.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        self.assertEqual(renderer.order, ["real"])
+        self.assertEqual(renderer.note_defs, {"real": "Real footnote."})
+        code_lines = [flowable.getPlainText() for flowable in renderer.build_story()
+                      if hasattr(flowable, "getPlainText")]
+        self.assertIn("{real} [^fake]", code_lines)
+        self.assertIn("[^fake]: Code only.", code_lines)
+
+    def test_long_backtick_and_tilde_fences_leave_code_untouched(self):
+        temp, renderer = self.renderer_for(
+            "Example.[^real]\n\n"
+            "````markdown\n{real}\n```\n[^fake]\n````\n\n"
+            "~~~python\n{real} [^also_fake]\n~~~\n\n"
+            "[^real]: Real footnote.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        self.assertEqual(renderer.order, ["real"])
+        code_lines = [flowable.getPlainText() for flowable in renderer.build_story()
+                      if hasattr(flowable, "getPlainText")]
+        self.assertIn("{real}", code_lines)
+        self.assertIn("[^fake]", code_lines)
+        self.assertIn("{real} [^also_fake]", code_lines)
+
+    def test_inline_code_does_not_resolve_or_assign_footnotes(self):
+        temp, renderer = self.renderer_for(
+            "Example `[^fake]`.[^real]\n\n[^real]: Real footnote.\n"
+        )
+        self.addCleanup(temp.cleanup)
+
+        self.assertEqual(renderer.nums, {"real": 1})
+        rendered, refs = renderer.markdown_inline(
+            "See `{real}` and {real}; `[^real]` and [^real]."
+        )
+        self.assertEqual(
+            rendered,
+            'See {real} and <link href="#footnote-1">1</link>; '
+            '[^real] and <link href="#footnote-1"><super>1</super></link>.',
+        )
+        self.assertEqual(refs, [1])
 
     def test_footnote_citation_is_clickable(self):
         temp, renderer = self.renderer_for(
@@ -77,7 +151,7 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
     def test_builds_pdf_with_internal_note_destinations(self):
         temp, renderer = self.renderer_for(
-            """Alpha.[^ref-a]\n\n_See supra note_ {{ref-a}}.\n\n[^ref-a]: A.\n"""
+            """Alpha.[^ref-a]\n\n_See supra note_ {ref-a}.\n\n[^ref-a]: A.\n"""
         )
         self.addCleanup(temp.cleanup)
 
@@ -93,8 +167,8 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
         temp, renderer = self.renderer_for("No footnotes.\n")
         self.addCleanup(temp.cleanup)
 
-        rendered, _ = renderer.markdown_inline("See note {{missing}}.")
-        self.assertEqual(rendered, "See note {{missing}}.")
+        rendered, _ = renderer.markdown_inline("See note {missing}.")
+        self.assertEqual(rendered, "See note {missing}.")
 
 
 if __name__ == "__main__":
