@@ -308,6 +308,14 @@
           <label>Output filename
             <input name="output_name" value="document.pdf">
           </label>
+          <label>Export format
+            <select id="output-format" name="output_format">
+              <option value="pdf">PDF (existing compiler)</option>
+              <option value="court_docx">Court pleading — Microsoft Word (.docx)</option>
+              <option value="federal_register_docx">Federal Register agency draft — Word (.docx)</option>
+            </select>
+            <small>Word exports are editable drafts. Check court-specific rules or the Office of the Federal Register's drafting requirements before submission.</small>
+          </label>
           <label>Image files
             <input id="inline-images" type="file" name="inline_images" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/tiff" multiple>
             <small>Attach image files individually or use the document folder picker.</small>
@@ -897,7 +905,7 @@
     const request = new AbortController();
     compileRequest = request;
     renderButton.disabled = true;
-    compileStatus.textContent = 'Compiling PDF…';
+    compileStatus.textContent = isWord() ? 'Compiling Word document…' : 'Compiling PDF…';
     try {
       const response = await fetch('/render', { method: 'POST', body: documentFormData(), signal: request.signal });
       if (!response.ok) {
