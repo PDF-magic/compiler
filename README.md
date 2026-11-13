@@ -31,6 +31,7 @@ The configurator accepts an uploaded Markdown file or pasted Markdown and lets y
 - optional smart quotes in rendered text
 - section numbering: legal form such as `I.B.3.a.i`, decimal form such as `1.2.3.4.5`, or no visible numbering
 - optional visible table of contents using the generated section labels and page locations
+- image insertion and document-folder upload, including Markdown with nested raster images
 - uploaded logo or text wordmark
 - logo treatment: preserve as uploaded, auto-trim empty padding, or auto-trim and optimize for monochrome printing
 - optional handwritten signature image rendered over a signing line by a standalone `[[signature]]` Markdown tag
@@ -75,6 +76,8 @@ The same works with `## [TOC]` through `###### [TOC]`. Heading-form markers are 
 A standalone TOC marker enables the visible TOC even when the configurator checkbox is off. When the checkbox is on, the marker overrides the default placement at the start of the document. Only the first standalone marker inserts the TOC; later standalone markers are ignored. Both `[[TOC]]` and heading-form markers inside fenced code blocks remain literal text, so documentation examples can safely show the syntax.
 
 The preflight validator reports line and column locations for required legal-style italics such as `_See_`, `_See, e.g.,_`, `_Id._`, `_Ibid._`, `_supra_`, `_infra_`, `_available at_`, and `_note_ 4`. These checks are case-insensitive. It also checks HTTP(S) URLs for valid structure and resolvable public hostnames, rejecting malformed, nonexistent, localhost, and private-network targets. HTTP URLs must use HTTPS when the same public host can complete a valid TLS connection; HTTP remains allowed when HTTPS is unavailable. Root URLs omit the trailing slash (`https://example.com`, not `https://example.com/`), while trailing slashes on non-root paths remain allowed. Validation is read-only and does not rewrite Markdown.
+
+The web configurator can embed document images without using the CLI. Attach images to a single Markdown upload using **Image files**, then click **Insert selected images into Markdown** to edit and add image references. Alternatively, choose a **Document folder** containing exactly one Markdown file and its images; nested paths such as `![Evidence](images/evidence.png)` are preserved. PNG, JPEG, GIF, WebP, BMP and TIFF are supported. SVG, scripts, HTML, invalid images, duplicate filenames and directory traversal are rejected. Image attachments are staged in a temporary directory and are not retained after compilation. Uploads remain subject to the 20 MB request limit.
 
 The web configurator renders the entire supplied Markdown document. Remove any drafting notes or email instructions from the input before rendering. The rendered PDF opens inline in a new tab so the configurator remains available for another render.
 
