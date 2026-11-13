@@ -614,6 +614,7 @@ class PdfRenderer:
     ) -> tuple[str, list[int]]:
         """Render quote-local citations without consuming document note numbers."""
         placeholders: dict[str, str] = {}
+        shielded, code_spans = protect_inline_code(text)
 
         def replace_local_ref(match: re.Match[str]) -> str:
             key = match.group(1)
@@ -624,7 +625,7 @@ class PdfRenderer:
             return placeholder
 
         # The standard [^key] syntax is always available in sourced quotes.
-        text = self.note_ref_re.sub(replace_local_ref, text)
+        text = self.note_ref_re.sub(replace_local_ref, shielded)
         if self.quote_inline_number_footnotes:
             text = self.quotation_number_ref_re.sub(replace_local_ref, text)
         rendered, refs = self.markdown_inline(text, True)
@@ -633,6 +634,8 @@ class PdfRenderer:
                 placeholder,
                 f"<super>{html.escape(key)}</super>",
             )
+        for placeholder, markup in code_spans.items():
+            rendered = rendered.replace(placeholder, markup)
         return rendered, refs
 
     def quotation_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
