@@ -63,6 +63,33 @@ class EmojiRendererTests(unittest.TestCase):
             self.assertGreater(pages, 2)
             self.assertIn(b"/Subtype /Image", output.read_bytes())
 
+    def test_color_emoji_copy_as_original_inline_unicode(self):
+        import fitz
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "emoji-copy.md"
+            source.write_text(
+                "## Greeting 😀\n\n"
+                "Hello 😀 world 👍🏽 family 👨‍👩‍👧‍👦 flag 🇺🇸 heart ❤️.\n\n"
+                "Next paragraph: 🦄 then ✨.\n",
+                encoding="utf-8",
+            )
+            output = root / "emoji-copy.pdf"
+            renderer = FirstPagePdfRenderer(
+                source, output, settings=LetterSettings(show_date=False),
+            )
+            renderer.build()
+            with fitz.open(output) as pdf:
+                text = " ".join(" ".join(page.get_text(sort=True).split())
+                                for page in pdf)
+                self.assertIn(
+                    "Hello 😀 world 👍🏽 family 👨‍👩‍👧‍👦 flag 🇺🇸 heart ❤️.", text
+                )
+                self.assertIn("Next paragraph: 🦄 then ✨.", text)
+                self.assertTrue(any(page.get_images() for page in pdf))
+                self.assertTrue(pdf[0].search_for("😀"))
+
     def test_selected_pack_does_not_fall_back(self):
         from zipfile import ZipFile
         from emoji_renderer import emoji_style_scope, validate_emoji_style

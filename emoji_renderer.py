@@ -12,6 +12,7 @@ from threading import Lock
 from zipfile import BadZipFile, ZipFile
 
 from reportlab.platypus import Paragraph
+from emoji_unicode import embed_unicode_emoji, emoji_from_image, emit_unicode_text
 
 
 ASSETS = Path(__file__).parent / "assets" / "twemoji" / "72x72.zip"
@@ -91,7 +92,9 @@ def render_with_emoji_style(method):
     @wraps(method)
     def wrapped(self, *args, **kwargs):
         with emoji_style_scope(self.emoji_style, self.emoji_pack):
-            return method(self, *args, **kwargs)
+            result = method(self, *args, **kwargs)
+            embed_unicode_emoji(self.output)
+            return result
     return wrapped
 
 
@@ -113,12 +116,13 @@ def _asset_directory():
 
 
 @lru_cache(maxsize=1024)
-def _image_path(archive, filename):
+def _image_path(archive, filename, original):
     with _asset_lock:
         prefix = sha256(archive.encode()).hexdigest()[:16]
         directory = Path(_asset_directory().name) / prefix
         directory.mkdir(exist_ok=True)
-        path = directory / Path(filename).name
+        codepoints = "-".join(f"{ord(char):x}" for char in original)
+        path = directory / f"{codepoints}__{Path(filename).name}"
         if not path.exists():
             with ZipFile(archive) as bundle:
                 data = bundle.read(filename)
@@ -164,7 +168,7 @@ def emoji_markup(text, font_size):
                 "Choose a compatible artwork pack."
             )
         return (
-            f'<img src="{_image_path(archive, filename)}" width="{font_size}" '
+            f'<img src="{_image_path(archive, filename, match.group())}" width="{font_size}" '
             f'height="{font_size}" valign="middle"/>'
         )
 
@@ -180,3 +184,31 @@ class EmojiParagraph(Paragraph):
         if text and frags is None:
             text = emoji_markup(text, style.fontSize if style is not None else 10)
         super().__init__(text, style, bulletText=bulletText, frags=frags, **kwargs)
+
+    def beginText(self, *args, **kwargs):
+        tx = super().beginText(*args, **kwargs)
+        self._emoji_tx = tx
+        return tx
+
+    def drawPara(self, *args, **kwargs):
+        # ReportLab draws inline images separately from its paragraph text.
+        # Insert the exact Unicode sequence into that same text run at the
+        # image's position, while retaining the full-color PNG for display.
+        canvas = self.canv
+        original_draw_image = canvas.drawImage
+
+        def draw_image(image, x, y, *image_args, **image_kwargs):
+            result = original_draw_image(image, x, y, *image_args, **image_kwargs)
+            sequence = emoji_from_image(image, Path(_asset_directory().name))
+            if sequence is not None:
+                emit_unicode_text(
+                    canvas, self._emoji_tx, sequence,
+                    self.style.fontSize, self.style.fontName,
+                )
+            return result
+
+        canvas.drawImage = draw_image
+        try:
+            return super().drawPara(*args, **kwargs)
+        finally:
+            canvas.drawImage = original_draw_image

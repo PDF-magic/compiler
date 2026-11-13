@@ -10,10 +10,14 @@ python -m pip install -r requirements.txt
 
 ## Web configurator
 
-Emoji render as fixed inline color images chosen by the document author, not
-viewer-native emoji fonts. Twemoji is bundled by default; other named styles
-require a supplied PNG ZIP pack. Image emoji are not individually selectable
-Unicode text. Twemoji credits are in [the emoji asset notes](assets/twemoji/README.md).
+Emoji retain their original Unicode characters in the PDF text stream while
+rendering as author-selected fixed-color artwork. Each color emoji has an inline
+Type 3 text glyph with a ToUnicode mapping for the exact original sequence
+(including skin tones, variation selectors, and joined emoji). Copying or
+extracting the surrounding paragraph can therefore recover its Unicode emoji.
+Twemoji is bundled by default; other styles require a PNG ZIP pack. Viewer
+support for complex Unicode copy/paste varies. Twemoji credits are in
+[the emoji asset notes](assets/twemoji/README.md).
 
 Run the web app:
 
@@ -378,5 +382,6 @@ such as 1f600.png, 1f44d-1f3fd.png or
 Missing supported emoji fail compilation rather than changing the style.
 The author must source artwork and comply with the selected project's license.
 Mutant Standard uses a noncommercial license and is not bundled. These images
-fix the visual appearance but do not turn emoji into selectable Unicode PDF
-text. PDF/A output still needs independent conformance validation.
+fix the visual appearance; accompanying Type 3 ToUnicode glyphs preserve the
+original emoji as inline selectable text. PDF/A output still needs independent
+conformance validation.
