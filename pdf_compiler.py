@@ -10,12 +10,19 @@ its OCC- and WhyDRS-specific paths and metadata.
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 import html
+import os
 import re
+import subprocess
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+import weakref
 
 from PIL import Image as PILImage
+from PIL import ImageChops, ImageDraw, ImageOps
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -24,10 +31,54 @@ from reportlab.platypus import (
     HRFlowable,
     Image,
     PageBreak,
-    Paragraph,
     SimpleDocTemplate,
     Spacer,
 )
+
+
+from emoji_renderer import EmojiParagraph as Paragraph
+from page_breaks import PAGE_BREAK_SENTINEL, normalize_page_breaks
+
+
+SIGNATURE_SENTINEL = "@@PDF_COMPILER_SIGNATURE_BLOCK@@"
+LINK_COLOR = "#2E732E"
+ADMONITION_TYPES = ("NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION")
+ADMONITION_DEFAULT_COLORS = {
+    "NOTE": "#2563EB",
+    "TIP": "#2E732E",
+    "IMPORTANT": "#7C3AED",
+    "WARNING": "#B45309",
+    "CAUTION": "#B42318",
+}
+
+
+@lru_cache(maxsize=1)
+def compiler_creator() -> str:
+    """Credit the running PDF Magic revision without changing document authorship."""
+    for name in ("PDF_MAGIC_COMPILER_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA", "GITHUB_SHA"):
+        sha = os.environ.get(name, "").strip()
+        if re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+            return f"PDF Magic Compiler ({sha[:7].lower()})"
+
+    # Only inspect Git when this module is the root of a real checkout. A
+    # parent application's repository would identify the wrong compiler.
+    checkout = Path(__file__).resolve().parent
+    if (checkout / ".git").exists():
+        try:
+            sha = subprocess.run(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            ).stdout.strip()
+            if re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+                return f"PDF Magic Compiler ({sha[:7].lower()})"
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
+
+    # Do not substitute today's upstream HEAD: the deployed code may differ.
+    return "PDF Magic Compiler"
 
 
 class RefParagraph(Paragraph):
@@ -44,10 +95,96 @@ class RefParagraph(Paragraph):
         self.outline = outline
         super().__init__(text, style, bulletText=bulletText, **kwargs)
 
+    def split(self, availWidth, availHeight):
+        pieces = super().split(availWidth, availHeight)
+
+        def references(fragment):
+            found = set()
+            if isinstance(fragment, (list, tuple)):
+                for item in fragment:
+                    found.update(references(item))
+            else:
+                for _index, target in getattr(fragment, "link", []):
+                    match = re.fullmatch(r"#footnote-(\d+)", target)
+                    if match:
+                        found.add(int(match.group(1)))
+            return found
+
+        for index, piece in enumerate(pieces):
+            present = references(piece.frags)
+            piece.footnote_refs = [number for number in self.footnote_refs if number in present]
+            piece.outline = self.outline if index == 0 else None
+        return pieces
+
+    def draw(self):
+        accent = getattr(self.style, "quoteAccent", None)
+        if accent is not None and not getattr(self.style, "quotePlain", False):
+            self.canv.saveState()
+            x = self.style.leftIndent - 10
+            padding_top = getattr(self.style, "quotePaddingTop", 6)
+            padding_bottom = getattr(self.style, "quotePaddingBottom", 6)
+            background_color = getattr(self.style, "quoteBackground", accent)
+            opacity = max(0.0, min(1.0, float(getattr(self.style, "quoteBackgroundOpacity", 0.20))))
+            fill = colors.Color(
+                1 - (1 - background_color.red) * opacity,
+                1 - (1 - background_color.green) * opacity,
+                1 - (1 - background_color.blue) * opacity,
+            )
+            self.canv.setFillColor(fill)
+            corner_radius = self.style.quoteCornerRadius
+            right = self.width - self.style.rightIndent + corner_radius
+            bottom, top = -padding_bottom, self.height + padding_top
+            radius = min(corner_radius, (top - bottom) / 2, (right - x) / 2)
+            bottom_radius = radius if getattr(self.style, "quoteRoundBottom", True) else 0
+            top_radius = radius if getattr(self.style, "quoteRoundTop", True) else 0
+            background = self.canv.beginPath()
+            background.moveTo(x, bottom)
+            background.lineTo(right - bottom_radius, bottom)
+            if bottom_radius:
+                curve = bottom_radius * 0.5522847498
+                background.curveTo(
+                    right - bottom_radius + curve,
+                    bottom,
+                    right,
+                    bottom + bottom_radius - curve,
+                    right,
+                    bottom + bottom_radius,
+                )
+            else:
+                background.lineTo(right, bottom)
+            background.lineTo(right, top - top_radius)
+            if top_radius:
+                curve = top_radius * 0.5522847498
+                background.curveTo(
+                    right,
+                    top - top_radius + curve,
+                    right - top_radius + curve,
+                    top,
+                    right - top_radius,
+                    top,
+                )
+            else:
+                background.lineTo(right, top)
+            background.lineTo(x, top)
+            background.close()
+
+            if getattr(self.style, "quoteBorder", False):
+                self.canv.setStrokeColor(accent)
+                self.canv.setLineWidth(float(getattr(self.style, "quoteBorderWidth", 1.0)))
+                self.canv.drawPath(background, stroke=1, fill=1)
+            else:
+                self.canv.drawPath(background, stroke=0, fill=1)
+
+            self.canv.setStrokeColor(accent)
+            self.canv.setLineWidth(2)
+            self.canv.line(x, bottom, x, top)
+            self.canv.restoreState()
+        super().draw()
 
 class TrackingDoc(SimpleDocTemplate):
     def __init__(self, *args, **kwargs):
         self.page_refs: dict[int, list[int]] = {}
+        self._outline_levels: list[int] = []
         super().__init__(*args, **kwargs)
 
     def afterFlowable(self, flowable):
@@ -61,7 +198,15 @@ class TrackingDoc(SimpleDocTemplate):
             title, level = outline
             key = f"h-{self.page}-{abs(hash(title))}"
             self.canv.bookmarkPage(key)
-            self.canv.addOutlineEntry(title, key, level=level, closed=False)
+            # ReportLab requires a contiguous outline depth starting at zero.
+            # Nest by the nearest preceding shallower heading, even when source
+            # headings skip levels or the first heading is not top-level.
+            while self._outline_levels and self._outline_levels[-1] >= level:
+                self._outline_levels.pop()
+            self._outline_levels.append(level)
+            self.canv.addOutlineEntry(
+                title, key, level=len(self._outline_levels) - 1, closed=False
+            )
 
 
 def roman(number: int) -> str:
@@ -114,6 +259,76 @@ def smarten_quotes(text: str) -> str:
     return "".join(part if index % 2 else transform(part) for index, part in enumerate(parts))
 
 
+
+def protect_inline_code(text: str) -> tuple[str, dict[str, str]]:
+    """Protect backtick code spans and escaped backticks from Markdown parsing.
+
+    Code spans use matching backtick-run lengths. Newlines become spaces;
+    one surrounding space is removed unless the content is only spaces.
+    """
+    prefix = "@@PDFCODE"
+    while prefix in text:
+        prefix += "X"
+    replacements: dict[str, str] = {}
+    result: list[str] = []
+    cursor = 0
+    index = 0
+
+    def token(markup: str) -> str:
+        placeholder = f"{prefix}{len(replacements)}@@"
+        replacements[placeholder] = markup
+        return placeholder
+
+    while index < len(text):
+        if text[index] != "`":
+            index += 1
+            continue
+
+        slash_count = 0
+        while index > slash_count and text[index - slash_count - 1] == "\\":
+            slash_count += 1
+        if slash_count % 2:
+            result.append(text[cursor:index - 1])
+            result.append(token("`"))
+            index += 1
+            cursor = index
+            continue
+
+        opening_end = index
+        while opening_end < len(text) and text[opening_end] == "`":
+            opening_end += 1
+        width = opening_end - index
+        search = opening_end
+        closing_start = -1
+        closing_end = -1
+        while search < len(text):
+            candidate = text.find("`", search)
+            if candidate == -1:
+                break
+            candidate_end = candidate
+            while candidate_end < len(text) and text[candidate_end] == "`":
+                candidate_end += 1
+            if candidate_end - candidate == width:
+                closing_start, closing_end = candidate, candidate_end
+                break
+            search = candidate_end
+
+        if closing_start == -1:
+            index = opening_end
+            continue
+
+        content = text[opening_end:closing_start].replace("\n", " ")
+        if content.startswith(" ") and content.endswith(" ") and content.strip(" "):
+            content = content[1:-1]
+        result.append(text[cursor:index])
+        result.append(token(f'<font name="Courier">{html.escape(content, quote=False)}</font>'))
+        index = closing_end
+        cursor = index
+
+    result.append(text[cursor:])
+    return "".join(result), replacements
+
+
 def extract_body(markdown: str, start_heading: str | None = None) -> str:
     """Return all Markdown, or only the content after an exact heading."""
     if not start_heading:
@@ -126,13 +341,34 @@ def extract_body(markdown: str, start_heading: str | None = None) -> str:
     return markdown[match.end() :].strip()
 
 
+def advance_code_fence(line: str, active: str | None) -> tuple[str | None, bool]:
+    """Track Markdown backtick/tilde fences, including longer closing markers."""
+    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+    if match is None:
+        return active, False
+    marker, remainder = match.groups()
+    if active is None:
+        if marker.startswith("`") and "`" in remainder:
+            return None, False
+        return marker, True
+    if marker[0] == active[0] and len(marker) >= len(active) and not remainder.strip():
+        return None, True
+    return active, False
+
+
 def extract_footnotes(markdown: str) -> tuple[str, dict[str, str]]:
     notes: dict[str, str] = {}
     body: list[str] = []
     lines = markdown.splitlines()
     index = 0
+    fence_marker: str | None = None
 
     while index < len(lines):
+        fence_marker, boundary = advance_code_fence(lines[index], fence_marker)
+        if boundary or fence_marker is not None:
+            body.append(lines[index])
+            index += 1
+            continue
         match = re.match(r"^\[\^([^\]]+)\]:\s*(.*)$", lines[index])
         if not match:
             body.append(lines[index])
@@ -156,10 +392,44 @@ def extract_footnotes(markdown: str) -> tuple[str, dict[str, str]]:
     return "\n".join(body), notes
 
 
+def replace_signature_tags(markdown: str) -> tuple[str, int]:
+    """Replace standalone ``[[signature]]`` tags outside fenced code."""
+    output: list[str] = []
+    count = 0
+    fence_marker: str | None = None
+
+    for raw_line in markdown.splitlines():
+        fence_marker, boundary = advance_code_fence(raw_line, fence_marker)
+        if boundary:
+            output.append(raw_line)
+            continue
+
+        if fence_marker is None and raw_line.strip().lower() == "[[signature]]":
+            output.append(SIGNATURE_SENTINEL)
+            count += 1
+        else:
+            output.append(raw_line)
+
+    return "\n".join(output), count
+
+
+def _delete_generated_asset(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 class PdfRenderer:
+    horizontal_rule_re = re.compile(r"(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}")
     url_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+    bare_url_re = re.compile(r"https?://[^\s<]+")
     note_ref_re = re.compile(r"\[\^([^\]]+)\]")
-    note_number_ref_re = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+    # Caret-free quotation footnotes are numeric and opt-in because [11] can
+    # also be ordinary bracketed text. Do not rewrite images or Markdown links.
+    quotation_number_ref_re = re.compile(r"(?<!!)\[([0-9]+)\](?!\(|\[)")
+    note_number_ref_re = re.compile(r"(?<!\{)\{\s*([^{}]+?)\s*\}(?!\})")
+    inline_code_re = re.compile(r"(?<!`)(`+)(?!`)(.*?)\1(?!`)", re.DOTALL)
 
     def __init__(
         self,
@@ -167,21 +437,33 @@ class PdfRenderer:
         output: Path,
         *,
         logo: Path | None = None,
+        signature: Path | None = None,
         wordmark: str | None = None,
         title: str | None = None,
         author: str | None = None,
         start_heading: str | None = None,
         smart_quotes: bool = False,
+        quote_inline_number_footnotes: bool = False,
+        underline_links: bool = True,
+        link_color: str = LINK_COLOR,
     ):
         self.source = source
         self.output = output
         self.logo = logo
+        self.signature = signature
         self.wordmark = wordmark
         self.title = title or source.stem
         self.author = author or ""
         self.smart_quotes = smart_quotes
+        self.quote_inline_number_footnotes = quote_inline_number_footnotes
+        self.underline_links = underline_links
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", link_color):
+            raise ValueError("Link color must be a six-digit hex color, such as #2E732E.")
+        self.link_color = link_color.upper()
         self.order: list[str] = []
         self.nums: dict[str, int] = {}
+        self._signature_asset: Path | None = None
+        self._signature_asset_finalizer = None
 
         pdfmetrics.registerFontFamily(
             "Times-Roman",
@@ -194,6 +476,8 @@ class PdfRenderer:
         raw = self.source.read_text(encoding="utf-8")
         body = extract_body(raw, start_heading)
         self.body_text, self.note_defs = extract_footnotes(body)
+        self.body_text = normalize_page_breaks(self.body_text)
+        self._prepare_signature_directives()
         self.prime_note_numbers()
         self.styles = self._styles()
 
@@ -205,6 +489,33 @@ class PdfRenderer:
         self.foot_top = 3.05 * inch
         self.max_foot_width = self.page_width - self.left - self.right
         self.max_foot_height = self.foot_top - 0.12 * inch
+
+    def _prepare_signature_directives(self) -> None:
+        processed, count = replace_signature_tags(self.body_text)
+        if not count:
+            return
+
+        if self.signature and not self.signature.exists():
+            raise ValueError(f"Signature image not found: {self.signature}")
+
+        asset = self._create_signature_asset()
+        self._signature_asset = asset
+        self._signature_asset_finalizer = weakref.finalize(self, _delete_generated_asset, asset)
+        self.body_text = processed.replace(
+            SIGNATURE_SENTINEL,
+            f"![signature]({asset.as_posix()})",
+        )
+
+    def _create_signature_asset(self) -> Path:
+        """Create a professionally normalized responsive signature block."""
+        from signature_layout import create_signature_asset
+
+        return create_signature_asset(self.signature)
+
+    def _cleanup_signature_asset(self) -> None:
+        finalizer = self._signature_asset_finalizer
+        if finalizer is not None and finalizer.alive:
+            finalizer()
 
     def _styles(self):
         styles = getSampleStyleSheet()
@@ -268,15 +579,58 @@ class PdfRenderer:
             ParagraphStyle(
                 "QuoteX",
                 parent=styles["BodyX"],
-                leftIndent=0.28 * inch,
-                rightIndent=0.18 * inch,
-                borderColor=colors.HexColor("#AAB2BD"),
-                borderWidth=0.6,
-                borderPadding=6,
-                spaceBefore=5,
-                spaceAfter=7,
+                leftIndent=0.25 * inch,
+                rightIndent=0.18 * inch + 10,
+                quoteAccent=colors.HexColor(self.link_color),
+                quoteCornerRadius=10,
+                spaceBefore=18,
+                spaceAfter=20,
             )
         )
+        styles.add(
+            ParagraphStyle(
+                "QuotationBodyX",
+                parent=styles["QuoteX"],
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "QuotationSourceX",
+                parent=styles["QuoteX"],
+                fontName="Times-Italic",
+                fontSize=10,
+                leading=13,
+                alignment=TA_RIGHT,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "QuotationFootnoteX",
+                parent=styles["QuoteX"],
+                fontSize=8.8,
+                leading=9.9,
+                spaceBefore=0,
+                spaceAfter=0,
+            )
+        )
+        for kind, color in ADMONITION_DEFAULT_COLORS.items():
+            prefix = f"Admonition{kind.title()}"
+            styles.add(
+                ParagraphStyle(
+                    f"{prefix}BodyX",
+                    parent=styles["QuoteX"],
+                    quoteAccent=colors.HexColor(color),
+                )
+            )
+            styles.add(
+                ParagraphStyle(
+                    f"{prefix}HeaderX",
+                    parent=styles["QuoteX"],
+                    fontName=base,
+                    alignment=TA_CENTER,
+                    quoteAccent=colors.HexColor(color),
+                )
+            )
         styles.add(
             ParagraphStyle(
                 "ListX",
@@ -302,41 +656,452 @@ class PdfRenderer:
         )
         return styles
 
+    @staticmethod
+    def admonition_kind(text: str) -> str | None:
+        match = re.fullmatch(
+            r"\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        return match.group(1).upper() if match else None
+
+    def admonitions_enabled(self) -> bool:
+        return True
+
+    def admonition_header(self, kind: str) -> str:
+        return ""
+
+    @staticmethod
+    def small_caps_markup(text: str, font_size: float) -> str:
+        """Render lowercase runs as reduced uppercase glyphs for small caps."""
+        small_size = font_size * 0.82
+        parts = re.split(r"(<[^>]+>|&[^;]+;)", text)
+        for index, part in enumerate(parts):
+            if not part or part.startswith("<") or (
+                part.startswith("&") and part.endswith(";")
+            ):
+                continue
+            parts[index] = re.sub(
+                r"[a-z]+",
+                lambda match: (
+                    f'<font size="{small_size:g}">'
+                    f"{match.group(0).upper()}</font>"
+                ),
+                part,
+            )
+        return "".join(parts)
+
+    @staticmethod
+    def quotation_source(text: str) -> str | None:
+        match = re.fullmatch(
+            r"\[!(?:SOURCE|SRC)\]\s+(.+?)\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        return match.group(1) if match else None
+
+    def quotation_footnote_definition(self, text: str) -> tuple[str, str] | None:
+        # Explicit caret footnotes work regardless of the shorthand option.
+        match = re.fullmatch(r"\[\^([^\]\n]+)\]:\s*(.*?)\s*", text.strip())
+        if match:
+            return match.group(1), match.group(2)
+        if self.quote_inline_number_footnotes:
+            match = re.fullmatch(r"\[([0-9]+)\]:\s*(.*?)\s*", text.strip())
+            if match:
+                return match.group(1), match.group(2)
+        return None
+
+    def quotation_local_notes(self, quote_lines: list[str]) -> dict[str, str]:
+        return dict(
+            definition
+            for line in quote_lines[1:]
+            if (definition := self.quotation_footnote_definition(line)) is not None
+        )
+
+    def quotation_inline(
+        self,
+        text: str,
+        local_notes: dict[str, str],
+    ) -> tuple[str, list[int]]:
+        """Render quote-local citations without consuming document note numbers."""
+        placeholders: dict[str, str] = {}
+        shielded, code_spans = protect_inline_code(text)
+
+        def replace_local_ref(match: re.Match[str]) -> str:
+            key = match.group(1)
+            if key not in local_notes:
+                return match.group(0)
+            placeholder = f"@@QUOTEFOOTNOTE{len(placeholders)}@@"
+            placeholders[placeholder] = key
+            return placeholder
+
+        rendered, refs = self.markdown_inline(
+            self.note_ref_re.sub(replace_local_ref, shielded),
+            True,
+        )
+        for placeholder, key in placeholders.items():
+            rendered = rendered.replace(
+                placeholder,
+                f"<super>{html.escape(key)}</super>",
+            )
+        for placeholder, markup in code_spans.items():
+            rendered = rendered.replace(placeholder, markup)
+        return rendered, refs
+
+    def quotation_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
+        """Render a first-class quotation with an optional source attribution."""
+        source = None
+        body_lines: list[str] = []
+        local_note_items: list[tuple[str, str]] = []
+        for line in quote_lines[1:]:
+            parsed_source = self.quotation_source(line)
+            if parsed_source is not None:
+                source = parsed_source
+                continue
+            definition = self.quotation_footnote_definition(line)
+            if definition is not None:
+                local_note_items.append(definition)
+                continue
+            body_lines.append(line)
+
+        local_notes = dict(local_note_items)
+
+        body_chunks = []
+        body_refs = []
+        for line in body_lines:
+            if self.quote_inline_number_footnotes:
+                rendered, refs = self.quotation_inline_with_numbers(line.strip(), local_notes)
+            else:
+                rendered, refs = self.quotation_inline(line.strip(), local_notes)
+            body_chunks.append(rendered)
+            body_refs.extend(refs)
+
+        flowables: list[RefParagraph] = []
+        while body_chunks and not body_chunks[0]:
+            body_chunks.pop(0)
+        while body_chunks and not body_chunks[-1]:
+            body_chunks.pop()
+        body_text = "<br/>".join(body_chunks)
+        if body_text:
+            body_style = self.styles["QuotationBodyX"]
+            if local_note_items or source:
+                body_style = ParagraphStyle(
+                    "QuotationBodyJoinedX",
+                    parent=body_style,
+                    quoteRoundBottom=False,
+                    quotePaddingBottom=0,
+                    spaceAfter=0,
+                )
+            flowables.append(RefParagraph(body_text, body_style, body_refs))
+
+        for index, (key, note_text) in enumerate(local_note_items):
+            rendered_note, note_refs = self.quotation_inline(note_text, local_notes)
+            note_style = self.styles["QuotationFootnoteX"]
+            has_preceding = bool(flowables)
+            has_following = index < len(local_note_items) - 1 or bool(source)
+            if has_preceding or has_following:
+                note_style = ParagraphStyle(
+                    f"QuotationFootnoteJoinedX{index}",
+                    parent=note_style,
+                    quoteRoundTop=not has_preceding,
+                    quoteRoundBottom=not has_following,
+                    quotePaddingTop=0 if has_preceding else 6,
+                    quotePaddingBottom=0 if has_following else 6,
+                    spaceBefore=0,
+                    spaceAfter=0,
+                )
+            flowables.append(
+                RefParagraph(
+                    f"{html.escape(key)}. {rendered_note}",
+                    note_style,
+                    note_refs,
+                )
+            )
+
+        if source:
+            rendered_source, source_refs = self.quotation_inline(source, local_notes)
+            source_style = self.styles["QuotationSourceX"]
+            if flowables:
+                source_style = ParagraphStyle(
+                    "QuotationSourceJoinedX",
+                    parent=source_style,
+                    quoteRoundTop=False,
+                    quotePaddingTop=0,
+                    spaceBefore=0,
+                )
+            flowables.append(
+                RefParagraph(f"— {rendered_source}", source_style, source_refs)
+            )
+
+        if not flowables:
+            flowables.append(RefParagraph("&#160;", self.styles["QuotationBodyX"]))
+        return flowables
+
+    def quotation_inline_with_numbers(
+        self,
+        text: str,
+        local_notes: dict[str, str],
+    ) -> tuple[str, list[int]]:
+        """Render opt-in numeric source citations without touching inline code."""
+        placeholders: dict[str, str] = {}
+        shielded, code_spans = protect_inline_code(text)
+
+        def replace_local_ref(match: re.Match[str]) -> str:
+            key = match.group(1)
+            if key not in local_notes:
+                return match.group(0)
+            placeholder = f"@@QUOTEFOOTNOTE{len(placeholders)}@@"
+            placeholders[placeholder] = key
+            return placeholder
+
+        text = self.note_ref_re.sub(replace_local_ref, shielded)
+        text = self.quotation_number_ref_re.sub(replace_local_ref, text)
+        rendered, refs = self.markdown_inline(text, True)
+        for placeholder, key in placeholders.items():
+            rendered = rendered.replace(
+                placeholder,
+                f"<super>{html.escape(key)}</super>",
+            )
+        for placeholder, markup in code_spans.items():
+            rendered = rendered.replace(placeholder, markup)
+        return rendered, refs
+
+    @staticmethod
+    def blockquote_color(text: str) -> str | None:
+        """Return a six-digit hex color from a blockquote color directive."""
+        match = re.fullmatch(
+            r"\[!COLOR\s+(#[0-9a-fA-F]{6})\]\s*",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        return match.group(1).upper() if match else None
+
+    def extract_blockquote_color(
+        self,
+        quote_lines: list[str],
+    ) -> tuple[list[str], str | None]:
+        """Remove an optional leading color directive from one blockquote."""
+        lines = list(quote_lines)
+        if not lines:
+            return lines, None
+
+        marker_index = 1 if (
+            re.fullmatch(r"\[!QUOTE\]\s*", lines[0].strip(), re.IGNORECASE)
+            or self.admonition_kind(lines[0]) is not None
+        ) else 0
+        if marker_index >= len(lines):
+            return lines, None
+
+        color = self.blockquote_color(lines[marker_index])
+        if color is None:
+            return lines, None
+
+        del lines[marker_index]
+        return lines, color
+
+    @staticmethod
+    def apply_blockquote_color(
+        flowables: list[RefParagraph],
+        color: str | None,
+    ) -> list[RefParagraph]:
+        """Override one blockquote's accent and any accent-derived background."""
+        if color is None:
+            return flowables
+
+        accent = colors.HexColor(color)
+        for index, flowable in enumerate(flowables):
+            old_accent = getattr(flowable.style, "quoteAccent", None)
+            old_background = getattr(flowable.style, "quoteBackground", None)
+            overrides = {"quoteAccent": accent}
+            if old_background is None or old_background == old_accent:
+                overrides["quoteBackground"] = accent
+            flowable.style = ParagraphStyle(
+                f"{flowable.style.name}ColorOverride{index}",
+                parent=flowable.style,
+                **overrides,
+            )
+        return flowables
+
+    def blockquote_flowables(self, quote_lines: list[str]) -> list[RefParagraph]:
+        """Render a normal quote or a GitHub-flavored admonition blockquote."""
+        if not quote_lines:
+            return []
+
+        quote_lines, color = self.extract_blockquote_color(quote_lines)
+        if not quote_lines:
+            return []
+
+        if re.fullmatch(r"\[!QUOTE\]\s*", quote_lines[0].strip(), re.IGNORECASE):
+            return self.apply_blockquote_color(
+                self.quotation_flowables(quote_lines),
+                color,
+            )
+
+        kind = self.admonition_kind(quote_lines[0])
+        if not kind or not self.admonitions_enabled():
+            chunks = []
+            refs = []
+            for quote in quote_lines:
+                rendered, quote_refs = self.markdown_inline(quote.strip(), True)
+                chunks.append(rendered)
+                refs.extend(quote_refs)
+            return self.apply_blockquote_color(
+                [RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs)],
+                color,
+            )
+
+        body_lines = quote_lines[1:]
+        body_chunks = []
+        body_refs = []
+        for quote in body_lines:
+            rendered, quote_refs = self.markdown_inline(quote.strip(), True)
+            body_chunks.append(rendered)
+            body_refs.extend(quote_refs)
+
+        prefix = f"Admonition{kind.title()}"
+        header = self.admonition_header(kind).strip()
+        flowables: list[RefParagraph] = []
+        has_body = bool(body_lines)
+
+        if header:
+            rendered_header, _ = self.markdown_inline(header, False)
+            header_style = self.styles[f"{prefix}HeaderX"]
+            rendered_header = self.small_caps_markup(
+                rendered_header,
+                header_style.fontSize,
+            )
+            if has_body:
+                header_style = ParagraphStyle(
+                    f"{prefix}HeaderJoinedX",
+                    parent=header_style,
+                    quoteRoundBottom=False,
+                    quotePaddingBottom=0,
+                    spaceAfter=0,
+                )
+            flowables.append(RefParagraph(rendered_header, header_style))
+
+        if has_body or not header:
+            body_text = "<br/>".join(body_chunks) if body_chunks else "&#160;"
+            body_style = self.styles[f"{prefix}BodyX"]
+            if header:
+                body_style = ParagraphStyle(
+                    f"{prefix}BodyJoinedX",
+                    parent=body_style,
+                    quoteRoundTop=False,
+                    quotePaddingTop=0,
+                    spaceBefore=0,
+                )
+            flowables.append(RefParagraph(body_text, body_style, body_refs))
+
+        return self.apply_blockquote_color(flowables, color)
+
     def note_number(self, key: str) -> int:
         if key not in self.nums:
             self.nums[key] = len(self.order) + 1
             self.order.append(key)
         return self.nums[key]
 
+    @staticmethod
+    def note_destination(number: int) -> str:
+        return f"footnote-{number}"
+
     def prime_note_numbers(self) -> None:
         """Assign final note numbers from real footnote citations before rendering."""
-        for match in self.note_ref_re.finditer(self.body_text):
-            self.note_number(match.group(1))
+        shielded, _ = protect_inline_code(self.body_text)
+        lines = shielded.splitlines()
+        index = 0
+        fence_marker: str | None = None
+        while index < len(lines):
+            fence_marker, boundary = advance_code_fence(lines[index], fence_marker)
+            if boundary or fence_marker is not None:
+                index += 1
+                continue
+            if not lines[index].startswith(">"):
+                for match in self.note_ref_re.finditer(
+                    self.inline_code_re.sub("", lines[index])
+                ):
+                    self.note_number(match.group(1))
+                index += 1
+                continue
 
-    def interpolate_note_numbers(self, text: str) -> str:
-        """Replace ``{{key}}`` with an already-assigned footnote number."""
+            quote_lines = []
+            while index < len(lines) and lines[index].startswith(">"):
+                quote_lines.append(lines[index].lstrip(">").strip())
+                index += 1
+
+            is_quotation = bool(quote_lines) and re.fullmatch(
+                r"\[!QUOTE\]\s*",
+                quote_lines[0],
+                re.IGNORECASE,
+            )
+            local_notes = self.quotation_local_notes(quote_lines) if is_quotation else {}
+            for line in quote_lines:
+                for match in self.note_ref_re.finditer(self.inline_code_re.sub("", line)):
+                    if match.group(1) not in local_notes:
+                        self.note_number(match.group(1))
+
+    def interpolate_note_numbers(self, text: str, *, linked: bool = False) -> str:
+        """Replace ``{key}`` with an already-assigned footnote number."""
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
             number = self.nums.get(key)
-            return str(number) if number is not None else match.group(0)
+            if number is None:
+                return match.group(0)
+            if linked:
+                return f"@@FNREF{number}@@"
+            return str(number)
 
         return self.note_number_ref_re.sub(replace, text)
 
+    @classmethod
+    def linkify_urls(cls, text: str, *, underline: bool = True, color: str = LINK_COLOR) -> str:
+        """Wrap bare HTTP(S) URLs in ReportLab link markup."""
+
+        def replace(match: re.Match[str]) -> str:
+            url = match.group(0)
+            trailing = ""
+            while url and url[-1] in ".,;:!?":
+                trailing = url[-1] + trailing
+                url = url[:-1]
+
+            closing_pairs = {")": "(", "]": "[", "}": "{"}
+            while url and url[-1] in closing_pairs:
+                closing = url[-1]
+                opening = closing_pairs[closing]
+                if url.count(opening) >= url.count(closing):
+                    break
+                trailing = closing + trailing
+                url = url[:-1]
+
+            if not url:
+                return match.group(0)
+
+            href = html.escape(html.unescape(url), quote=True)
+            label = f"<u>{url}</u>" if underline else url
+            return f'<link href="{href}" color="{color}">{label}</link>{trailing}'
+
+        parts = re.split(r"(<[^>]+>)", text)
+        return "".join(
+            part if index % 2 else cls.bare_url_re.sub(replace, part)
+            for index, part in enumerate(parts)
+        )
+
     def markdown_inline(self, text: str, refs_on: bool = True) -> tuple[str, list[int]]:
+        text, code_spans = protect_inline_code(text)
         refs: list[int] = []
         if refs_on:
 
             def replace_ref(match):
                 number = self.note_number(match.group(1))
                 refs.append(number)
-                return f"@@FN{number}@@"
+                return f"@@FNCITE{number}@@"
 
             text = self.note_ref_re.sub(replace_ref, text)
         else:
             text = self.note_ref_re.sub("", text)
 
-        text = self.interpolate_note_numbers(text)
+        text = self.interpolate_note_numbers(text, linked=True)
         text = text.replace("&nbsp;", " ")
         text = self.url_re.sub(lambda m: f"{m.group(1)} ({m.group(2)})", text)
         if self.smart_quotes:
@@ -346,17 +1111,66 @@ class PdfRenderer:
         text = re.sub(r"__([^_]+)__", r"<b>\1</b>", text)
         text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<i>\1</i>", text)
         text = re.sub(r"(?<![\w/])_([^_\n]+)_(?![\w/])", r"<i>\1</i>", text)
-        text = re.sub(r"`([^`]+)`", r"\1", text)
-        text = re.sub(r"@@FN(\d+)@@", r"<super>\1</super>", text)
+        text = re.sub(
+            r"@@FNCITE(\d+)@@",
+            r'<link href="#footnote-\1"><super>\1</super></link>',
+            text,
+        )
+        text = re.sub(
+            r"@@FNREF(\d+)@@",
+            r'<link href="#footnote-\1">\1</link>',
+            text,
+        )
+        # An adjacent code span must not be swallowed by a bare URL.
+        parts = (
+            re.split("(" + "|".join(map(re.escape, code_spans)) + ")", text)
+            if code_spans else [text]
+        )
+        text = "".join(
+            part if part in code_spans else self.linkify_urls(
+                part, underline=self.underline_links, color=self.link_color
+            )
+            for part in parts
+        )
+        for placeholder, markup in code_spans.items():
+            text = text.replace(placeholder, markup)
         return text, refs
 
-    def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph:
+    def code_paragraph(self, text: str) -> RefParagraph:
+        """Render a fenced-code line literally, without Markdown substitutions."""
+        return RefParagraph(html.escape(text, quote=False), self.styles["BodyX"], [])
+
+    def paragraph(self, text: str, style: ParagraphStyle) -> RefParagraph | PageBreak:
+        if text.strip() == PAGE_BREAK_SENTINEL:
+            return PageBreak()
         rendered, refs = self.markdown_inline(text, True)
         return RefParagraph(rendered, style, refs)
 
-    def list_item(self, text: str, marker: str = "-") -> RefParagraph:
+    @staticmethod
+    def list_indent_columns(indent: str) -> int:
+        """Return Markdown indentation width, expanding tabs to four-column stops."""
+        return len(indent.expandtabs(4))
+
+    def list_item(
+        self,
+        text: str,
+        marker: str = "-",
+        indent_columns: int = 0,
+    ) -> RefParagraph:
         rendered, refs = self.markdown_inline(text, True)
-        return RefParagraph(rendered, self.styles["ListX"], refs, bulletText=marker)
+        base_style = self.styles["ListX"]
+        indent_columns = max(0, indent_columns)
+        if indent_columns:
+            offset = indent_columns * 0.075 * inch
+            style = ParagraphStyle(
+                f"ListXIndent{indent_columns}",
+                parent=base_style,
+                leftIndent=base_style.leftIndent + offset,
+                bulletIndent=base_style.bulletIndent + offset,
+            )
+        else:
+            style = base_style
+        return RefParagraph(rendered, style, refs, bulletText=marker)
 
     @staticmethod
     def clean_heading(text: str) -> str:
@@ -366,11 +1180,26 @@ class PdfRenderer:
             text,
         ).strip()
 
+    def markdown_image(self, image_path: Path) -> Image:
+        """Size embedded Markdown images to the document's available body frame."""
+        with PILImage.open(image_path) as source_image:
+            width, height = source_image.size
+
+        # SimpleDocTemplate frames have 6-point padding on every edge.
+        # Reserve the following 8-point gap and 1 point for fit-rounding safety.
+        max_width = min(6.45 * inch, self.page_width - self.left - self.right - 12)
+        max_height = self.page_height - self.top - self.bottom - 12 - 8 - 1
+        scale = min(max_width / width, max_height / height, 1.0)
+
+        flowable = Image(str(image_path), width * scale, height * scale)
+        flowable.spaceAfter = 8
+        return flowable
+
     def build_story(self, extra_pages: int = 0):
         story = []
         paragraph_lines: list[str] = []
         quote_lines: list[str] = []
-        in_fence = False
+        fence_marker: str | None = None
         counts = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
 
         def flush_paragraph():
@@ -383,13 +1212,7 @@ class PdfRenderer:
         def flush_quote():
             nonlocal quote_lines
             if quote_lines:
-                chunks = []
-                refs = []
-                for quote in quote_lines:
-                    rendered, quote_refs = self.markdown_inline(quote.strip(), True)
-                    chunks.append(rendered)
-                    refs.extend(quote_refs)
-                story.append(RefParagraph("<br/>".join(chunks), self.styles["QuoteX"], refs))
+                story.extend(self.blockquote_flowables(quote_lines))
                 quote_lines = []
 
         def add_heading(level: int, heading: str):
@@ -423,20 +1246,20 @@ class PdfRenderer:
         for raw_line in self.body_text.splitlines():
             line = raw_line.rstrip()
 
-            if line.strip().startswith("```"):
+            fence_marker, boundary = advance_code_fence(line, fence_marker)
+            if boundary:
                 flush_paragraph()
                 flush_quote()
-                in_fence = not in_fence
                 continue
-            if in_fence:
+            if fence_marker is not None:
                 if line.strip():
-                    story.append(self.paragraph(line, self.styles["BodyX"]))
+                    story.append(self.code_paragraph(line))
                 continue
             if not line.strip():
                 flush_paragraph()
                 flush_quote()
                 continue
-            if line.strip() == "---":
+            if self.horizontal_rule_re.fullmatch(line.strip()):
                 flush_paragraph()
                 flush_quote()
                 story += [
@@ -456,13 +1279,7 @@ class PdfRenderer:
                 flush_quote()
                 image_path = (self.source.parent / image_match.group(1)).resolve()
                 if image_path.exists():
-                    with PILImage.open(image_path) as image:
-                        width, height = image.size
-                    scale = min((6.45 * inch) / width, (2.4 * inch) / height, 1.0)
-                    story += [
-                        Image(str(image_path), width * scale, height * scale),
-                        Spacer(1, 8),
-                    ]
+                    story.append(self.markdown_image(image_path))
                 continue
 
             if line.startswith(">"):
@@ -482,7 +1299,13 @@ class PdfRenderer:
                 flush_paragraph()
                 flush_quote()
                 marker = list_match.group(2) if list_match.group(2).endswith(".") else "-"
-                story.append(self.list_item(list_match.group(3), marker))
+                story.append(
+                    self.list_item(
+                        list_match.group(3),
+                        marker,
+                        self.list_indent_columns(list_match.group(1)),
+                    )
+                )
                 continue
 
             paragraph_lines.append(line)
@@ -499,7 +1322,9 @@ class PdfRenderer:
             self.note_defs.get(key, f"Missing footnote definition for {key}."),
             False,
         )
-        return Paragraph(f"{number}. {text}", self.styles["FootX"])
+        paragraph = Paragraph(f"{number}. {text}", self.styles["FootX"])
+        paragraph.footnote_number = number
+        return paragraph
 
     def process_page_items(self, items: list[Paragraph]) -> list[Paragraph]:
         y = self.max_foot_height
@@ -507,7 +1332,7 @@ class PdfRenderer:
         for index, paragraph in enumerate(items):
             _, height = paragraph.wrap(self.max_foot_width, y)
             if height <= y:
-                y -= height + 0.02 * inch
+                y -= height + self.footnote_gap()
                 continue
 
             pieces = paragraph.split(self.max_foot_width, y)
@@ -515,7 +1340,7 @@ class PdfRenderer:
                 first = pieces[0]
                 _, first_height = first.wrap(self.max_foot_width, y)
                 if first_height <= y:
-                    y -= first_height + 0.02 * inch
+                    y -= first_height + self.footnote_gap()
                     remaining.extend(pieces[1:])
                 else:
                     remaining.append(paragraph)
@@ -524,6 +1349,9 @@ class PdfRenderer:
             remaining.extend(items[index + 1 :])
             break
         return remaining
+
+    def footnote_gap(self) -> float:
+        return 0.02 * inch
 
     def continuation_pages_needed(self, page_refs: dict[int, list[int]], base_pages: int) -> int:
         carry: list[Paragraph] = []
@@ -576,11 +1404,30 @@ class PdfRenderer:
         )
         canvas.restoreState()
 
+    def first_pass_note_destinations(self, canvas, doc):
+        if doc.page != 1:
+            return
+        for number in range(1, len(self.order) + 1):
+            canvas.bookmarkPage(self.note_destination(number))
+
     def page_drawer(self, page_refs: dict[int, list[int]]):
         carry: list[Paragraph] = []
+        anchored_notes: set[int] = set()
+
+        def anchor_note(canvas, doc, paragraph: Paragraph, top: float) -> None:
+            number = getattr(paragraph, "footnote_number", None)
+            if number is None or number in anchored_notes:
+                return
+            canvas.bookmarkHorizontalAbsolute(
+                self.note_destination(number),
+                top,
+                left=doc.leftMargin,
+            )
+            anchored_notes.add(number)
 
         def draw(canvas, doc):
             nonlocal carry
+            canvas.setCreator(compiler_creator())
             if doc.page == 1:
                 self.draw_branding(canvas, doc)
 
@@ -602,6 +1449,7 @@ class PdfRenderer:
                 _, height = paragraph.wrap(self.max_foot_width, available)
                 if height <= available:
                     y -= height
+                    anchor_note(canvas, doc, paragraph, y + height)
                     paragraph.drawOn(canvas, doc.leftMargin, y)
                     y -= 0.02 * inch
                     continue
@@ -612,6 +1460,7 @@ class PdfRenderer:
                     _, first_height = first.wrap(self.max_foot_width, available)
                     if first_height <= available:
                         y -= first_height
+                        anchor_note(canvas, doc, paragraph, y + first_height)
                         first.drawOn(canvas, doc.leftMargin, y)
                         carry = pieces[1:] + items[index + 1 :]
                         break
@@ -641,27 +1490,30 @@ class PdfRenderer:
         if tmp.exists():
             tmp.unlink()
 
-        first_doc = self.document(tmp)
-        first_doc.build(
-            self.build_story(),
-            onFirstPage=lambda _canvas, _doc: None,
-            onLaterPages=lambda _canvas, _doc: None,
-        )
+        try:
+            first_doc = self.document(tmp)
+            first_doc.build(
+                self.build_story(),
+                onFirstPage=self.first_pass_note_destinations,
+                onLaterPages=lambda _canvas, _doc: None,
+            )
 
-        extra_pages = self.continuation_pages_needed(first_doc.page_refs, first_doc.page)
-        drawer = self.page_drawer(first_doc.page_refs)
-        final_doc = self.document(self.output)
-        final_doc.build(
-            self.build_story(extra_pages),
-            onFirstPage=drawer,
-            onLaterPages=drawer,
-        )
+            extra_pages = self.continuation_pages_needed(first_doc.page_refs, first_doc.page)
+            drawer = self.page_drawer(first_doc.page_refs)
+            final_doc = self.document(self.output)
+            final_doc.build(
+                self.build_story(extra_pages),
+                onFirstPage=drawer,
+                onLaterPages=drawer,
+            )
 
-        if tmp.exists():
-            tmp.unlink()
-        if drawer.carry():
-            raise RuntimeError("Footnote continuation text remained after final page")
-        return final_doc.page, len(self.order), extra_pages
+            if drawer.carry():
+                raise RuntimeError("Footnote continuation text remained after final page")
+            return final_doc.page, len(self.order), extra_pages
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+            self._cleanup_signature_asset()
 
 
 def main() -> int:
@@ -674,11 +1526,20 @@ def main() -> int:
     )
     parser.add_argument("--logo", type=Path, help="First-page logo image")
     parser.add_argument(
+        "--signature",
+        type=Path,
+        help="Optional handwritten signature image used by [[signature]] tags",
+    )
+    parser.add_argument(
         "--wordmark",
         help="Text wordmark used when no logo file is supplied",
     )
     parser.add_argument("--title", help="PDF document title metadata")
     parser.add_argument("--author", help="PDF document author metadata")
+    parser.add_argument(
+        "--render-style", choices=("classic", "professional"), default="classic",
+        help="Presentation style (professional uses a restrained filing layout)",
+    )
     parser.add_argument(
         "--start-heading",
         help="Compile only content after an exact Markdown heading",
@@ -688,18 +1549,38 @@ def main() -> int:
         action="store_true",
         help="Convert straight quotes to typographic quotes in rendered text",
     )
+    parser.add_argument(
+        "--quote-inline-number-footnotes",
+        action="store_true",
+        help="Interpret [11] citations and [11]: definitions inside [!QUOTE] blocks (off by default)",
+    )
     args = parser.parse_args()
 
     output = args.output or args.source.with_suffix(".pdf")
-    renderer = PdfRenderer(
+    renderer_class = PdfRenderer
+    presentation = {}
+    if args.render_style == "professional":
+        from first_page_layout import FirstPagePdfRenderer
+        from configured_renderer import LetterSettings
+        from typography_renderer import TypographySettings
+
+        renderer_class = FirstPagePdfRenderer
+        presentation = {
+            "settings": LetterSettings(show_date=False, page_number_style="page_number_of_total"),
+            "typography": TypographySettings.for_style("professional"),
+        }
+    renderer = renderer_class(
         args.source,
         output,
         logo=args.logo,
+        signature=args.signature,
         wordmark=args.wordmark,
         title=args.title,
         author=args.author,
         start_heading=args.start_heading,
         smart_quotes=args.smart_quotes,
+        quote_inline_number_footnotes=args.quote_inline_number_footnotes,
+        **presentation,
     )
     pages, footnotes, continuations = renderer.build()
     print(output)

@@ -1,3 +1,5 @@
 Flask
 Pillow
 reportlab
+PyMuPDF
+python-docx

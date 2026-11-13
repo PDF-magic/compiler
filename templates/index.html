@@ -6,6 +6,7 @@
   <title>PDF Compiler</title>
   <script>
     (() => {
+      document.documentElement.classList.add('js');
       const saved = localStorage.getItem('pdf-compiler-theme');
       const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       document.documentElement.dataset.theme = saved || (systemDark ? 'dark' : 'light');
@@ -31,6 +32,7 @@
       --success-bg: #edf8f1;
       --error: #a52a2a;
       --error-bg: #fff1f1;
+      --progress: #172033;
     }
     :root[data-theme="dark"] {
       color-scheme: dark;
@@ -50,45 +52,205 @@
       --success-bg: #10261a;
       --error: #ff9b9b;
       --error-bg: #301515;
+      --progress: #e6edf3;
     }
     * { box-sizing: border-box; }
     html { background: var(--bg); }
     body { margin: 0; background: var(--bg); color: var(--text); }
-    main { max-width: 1040px; margin: 0 auto; padding: 32px 20px 56px; }
-    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
-    h1 { margin: 0 0 6px; font-size: 30px; }
-    .intro { margin: 0; color: var(--muted); }
-    form { display: grid; gap: 18px; }
-    fieldset { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 20px; box-shadow: 0 8px 22px var(--shadow); }
-    legend { font-weight: 700; padding: 0 8px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 18px 48px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; }
+    .topbar .action-group { margin-left: auto; }
+    h1 { margin: 0 0 3px; font-size: 26px; letter-spacing: -.02em; }
+    .intro { margin: 0; color: var(--muted); font-size: 14px; }
+    form { margin: 0; }
+    .wizard {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: 0 10px 28px var(--shadow);
+    }
+    .wizard-progress {
+      display: grid;
+      gap: 9px;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-subtle);
+    }
+    .wizard-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .step-count { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
+    .step-title { color: var(--text); font-size: 13px; font-weight: 700; }
+    .progress-track { height: 3px; overflow: hidden; border-radius: 999px; background: var(--border); }
+    .progress-fill { width: 10%; height: 100%; border-radius: inherit; background: var(--progress); transition: width .18s ease; }
+    .step-tabs {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      overflow-x: auto;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-subtle);
+      scrollbar-width: thin;
+    }
+    .step-tab {
+      flex: 0 0 auto;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 6px 6px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .step-tab:hover { background: var(--surface); color: var(--text); opacity: 1; }
+    .step-tab[aria-current="step"] {
+      border-color: var(--border);
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 2px 8px var(--shadow);
+    }
+    fieldset {
+      min-width: 0;
+      margin: 0;
+      border: 0;
+      padding: 22px 22px 18px;
+    }
+    .js .wizard-page { display: none; }
+    .js .wizard-page.is-active { display: block; }
+    legend {
+      display: block;
+      width: 100%;
+      margin: 0 0 16px;
+      padding: 22px 0 0;
+      color: var(--text);
+      font-size: 21px;
+      font-weight: 760;
+      letter-spacing: -.015em;
+    }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 15px; }
     .full { grid-column: 1 / -1; }
-    label { display: grid; gap: 6px; font-size: 14px; font-weight: 650; }
-    input, select, textarea { width: 100%; border: 1px solid var(--control-border); border-radius: 9px; padding: 10px 11px; background: var(--surface-subtle); color: var(--text); font: inherit; }
+    label { display: grid; gap: 5px; font-size: 13px; font-weight: 650; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--control-border);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: var(--surface-subtle);
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+    }
     input:focus, select:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: 1px; border-color: transparent; }
-    textarea { min-height: 110px; resize: vertical; }
-    #markdown { min-height: 230px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-    small { color: var(--subtle); font-weight: 400; }
-    .check { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+    textarea { min-height: 92px; resize: vertical; }
+    #markdown { min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    small { color: var(--subtle); font-weight: 400; line-height: 1.4; }
+    .check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
     .check input { width: auto; }
-    .preview { display: none; max-width: 230px; max-height: 90px; object-fit: contain; border: 1px dashed var(--control-border); border-radius: 8px; padding: 7px; background: var(--surface-subtle); }
-    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    button { border: 1px solid transparent; border-radius: 10px; padding: 12px 18px; background: var(--button-bg); color: var(--button-text); font: inherit; font-weight: 700; cursor: pointer; }
-    button:hover { opacity: .9; }
-    .secondary { border-color: var(--border); background: var(--surface); color: var(--text); }
-    .theme-toggle { flex: 0 0 auto; padding: 9px 12px; border-color: var(--border); background: var(--surface); color: var(--text); box-shadow: 0 4px 12px var(--shadow); }
-    .validation { display: none; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--surface); }
+    .link-color-setting { margin-top: 12px; }
+    .link-color-setting > label { margin-bottom: 10px; }
+    .link-colors { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .link-colors .color-swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--border); background: var(--swatch); }
+    .color-swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 3px; }
+    .link-colors input { width: 120px; }
+    .admonition-settings { grid-column: 1 / -1; margin-top: 5px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .admonition-settings > summary { cursor: pointer; font-size: 13px; font-weight: 750; }
+    .admonition-settings > .check { margin-top: 12px; }
+    .admonition-help { display: block; margin: 8px 0 12px; }
+    .admonition-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .admonition-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); }
+    .admonition-card strong { font-size: 12px; letter-spacing: .05em; }
+    .addressee-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .addressee-actions button { margin-left: auto; }
+    .preview { display: none; max-width: 210px; max-height: 80px; object-fit: contain; border: 1px dashed var(--control-border); border-radius: 8px; padding: 6px; background: var(--surface-subtle); }
+    .validation { display: none; margin: 16px 0 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); font-size: 13px; }
     .validation.pass { display: block; color: var(--success); background: var(--success-bg); }
     .validation.fail { display: block; color: var(--error); background: var(--error-bg); }
-    .validation strong { display: block; margin-bottom: 6px; }
-    .validation ul { margin: 8px 0 0 20px; padding: 0; }
-    .validation li { margin: 6px 0; }
+    .validation strong { display: block; margin-bottom: 5px; }
+    .validation ul { margin: 7px 0 0 18px; padding: 0; }
+    .validation li { margin: 5px 0; }
     .validation code { color: inherit; }
+    .wizard-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 13px 18px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-subtle);
+    }
+    .action-group { display: flex; align-items: center; gap: 9px; }
+    button {
+      border: 1px solid transparent;
+      border-radius: 9px;
+      padding: 9px 13px;
+      background: var(--button-bg);
+      color: var(--button-text);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { opacity: .9; }
+    button:disabled { cursor: default; opacity: .45; }
+    .compile-actions { margin-top: 20px; text-align: center; }
+    #render-button { background: var(--surface-subtle); color: var(--muted); opacity: 1; }
+    #render-button.ready { background: #2E732E; color: white; }
+    #compile-status { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+    .secondary { border-color: var(--border); background: var(--surface); color: var(--text); }
+    .theme-toggle { flex: 0 0 auto; padding: 8px 10px; border-color: var(--border); background: var(--surface); color: var(--text); box-shadow: 0 3px 10px var(--shadow); }
+    .next-action[hidden] { display: none; }
+    .bug-report {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 11px;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 5px 16px var(--shadow);
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .bug-report:hover { opacity: .9; }
+    .bug-report:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     @media (max-width: 720px) {
+      main { padding: 16px 12px 44px; }
+      .topbar { align-items: center; }
+      .intro { display: none; }
       .grid { grid-template-columns: 1fr; }
       .full { grid-column: auto; }
-      .topbar { align-items: center; }
+      .admonition-settings { grid-column: auto; }
+      .admonition-grid { grid-template-columns: 1fr; }
+      fieldset { padding: 18px 16px 16px; }
+      .wizard-progress { padding: 12px 14px 10px; }
+      .step-tabs { padding: 10px 14px; }
+      legend { padding-top: 18px; }
+      .wizard-actions { padding: 11px 14px; }
+      .bug-report { right: 10px; bottom: 10px; }
     }
+
+    .letterhead-layout-settings { display: grid; gap: 10px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .letterhead-editor { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(190px, 1fr); gap: 14px; align-items: start; }
+    .letterhead-editor[hidden], #letterhead-custom-controls[hidden] { display: none; }
+    .letterhead-stage-column { min-width: 0; display: grid; gap: 8px; }
+    .letterhead-stage { position: relative; width: 100%; aspect-ratio: 6.94 / 3; min-height: 185px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; box-shadow: inset 0 0 0 8px #f4f6fa; }
+    .letterhead-tile { position: absolute; min-width: 0; padding: 3px 5px; border: 1px dashed #8797ad; border-radius: 4px; background: rgba(226, 234, 246, .92); color: #172033; text-align: left; cursor: grab; touch-action: none; user-select: none; font: inherit; font-weight: 400; overflow: hidden; }
+    .letterhead-tile:active { cursor: grabbing; }
+    .letterhead-tile.is-selected { outline: 2px solid #526fac; outline-offset: 1px; z-index: 1; }
+    .letterhead-tile-label { display: block; margin-bottom: 2px; color: #4a5971; font-size: 9px; font-weight: 750; }
+    .letterhead-tile-content { display: block; font: 11px/1.15 Georgia, serif; white-space: pre-line; overflow-wrap: anywhere; max-height: 90px; overflow: hidden; }
+    .letterhead-tile-logo { display: block; max-width: 95%; max-height: 33px; object-fit: contain; }
+    .letterhead-inspector, #letterhead-custom-controls { display: grid; gap: 10px; min-width: 0; }
+    .letterhead-inspector button { width: 100%; }
+    @media (max-width: 660px) { .letterhead-editor { grid-template-columns: 1fr; } .letterhead-stage { min-height: 165px; } }
   </style>
 </head>
 <body>
@@ -96,154 +258,466 @@
   <div class="topbar">
     <div>
       <h1>PDF Compiler</h1>
-      <p class="intro">Configure document presentation, validate it, download normalized Markdown, or render the PDF.</p>
+      <p class="intro">Configure one section at a time, then validate, download normalized Markdown, or export your PDF or editable Word document.</p>
     </div>
-    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle color theme"></button>
+    <div class="action-group">
+      <button id="export-config" class="secondary" type="button">Export config</button>
+      <button id="import-config" class="secondary" type="button">Import config</button>
+      <input id="config-file" type="file" accept=".json,application/json" hidden>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle color theme"></button>
+    </div>
   </div>
+  <p class="intro">Configurations save compiler settings; Markdown and uploaded files are kept separately.</p>
+  <p id="config-status" class="intro" role="status" aria-live="polite"></p>
 
   <form id="compiler-form" action="/render" method="post" enctype="multipart/form-data" target="_blank">
-    <fieldset>
-      <legend>Document</legend>
-      <div class="grid">
-        <label>Markdown file
-          <input type="file" name="source" accept=".md,.markdown,text/markdown,text/plain">
-          <small>If supplied, this takes precedence over pasted Markdown.</small>
-        </label>
-        <label>Output filename
-          <input name="output_name" value="document.pdf">
-        </label>
-        <label class="full">Or paste Markdown
-          <textarea id="markdown" name="markdown" placeholder="# Letter&#10;&#10;Your document…"></textarea>
-        </label>
-        <label>Start after heading
-          <input name="start_heading" placeholder="Letter">
-          <small>Optional exact Markdown heading.</small>
-        </label>
-        <label class="check"><input type="checkbox" name="smart_quotes"> Use smart quotes in rendered PDF</label>
+    <div class="wizard">
+      <div class="wizard-progress" aria-live="polite">
+        <div class="wizard-progress-row">
+          <span id="step-count" class="step-count">Step 1 of 11</span>
+          <span id="step-title" class="step-title">Document</span>
+        </div>
+        <div class="progress-track" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>
       </div>
-    </fieldset>
 
-    <fieldset>
-      <legend>Sections &amp; TOC</legend>
+      <nav class="step-tabs" aria-label="Compiler sections">
+        <button class="step-tab" type="button" data-step-target="0">Document</button>
+        <button class="step-tab" type="button" data-step-target="1">Typography</button>
+        <button class="step-tab" type="button" data-step-target="2">Sections</button>
+        <button class="step-tab" type="button" data-step-target="3">Metadata</button>
+        <button class="step-tab" type="button" data-step-target="4">Branding</button>
+        <button class="step-tab" type="button" data-step-target="5">Signature</button>
+        <button class="step-tab" type="button" data-step-target="6">Letterhead</button>
+        <button class="step-tab" type="button" data-step-target="7">Headers</button>
+        <button class="step-tab" type="button" data-step-target="8">Style</button>
+        <button class="step-tab" type="button" data-step-target="9">Licensing</button>
+        <button class="step-tab" type="button" data-step-target="10">Validate document</button>
+      </nav>
+
+      <fieldset class="wizard-page" data-step-title="Document">
+        <legend>Document</legend>
+        <div class="grid">
+          <label>Markdown file
+            <input type="file" name="source" accept=".md,.markdown,text/markdown,text/plain">
+            <small>If supplied, this takes precedence over pasted Markdown.</small>
+          </label>
+          <label>Output filename
+            <input name="output_name" value="document.pdf">
+          </label>
+          <label>Export format
+            <select id="output-format" name="output_format">
+              <option value="pdf">PDF (existing compiler)</option>
+              <option value="court_docx">Court pleading — Microsoft Word (.docx)</option>
+              <option value="federal_register_docx">Federal Register agency draft — Word (.docx)</option>
+            </select>
+            <small>Word exports are editable drafts. Check court-specific rules or the Office of the Federal Register's drafting requirements before submission.</small>
+          </label>
+          <label class="full">Or paste Markdown
+            <small><code># Title</code> · <code>## Subtitle or section heading</code></small>
+            <textarea id="markdown" name="markdown" placeholder="# Title&#10;&#10;## Subtitle or section heading&#10;&#10;Your document…"></textarea>
+          </label>
+
+        </div>
+      </fieldset>
+
+    <fieldset class="wizard-page" data-step-title="Typography">
+      <legend>Typography</legend>
       <div class="grid">
-        <label>Section numbering
-          <select name="section_numbering">
-            {% for value, label in section_numbering_styles.items() %}
+        <label class="full">Typography preset
+          <select id="render-style" name="render_style">
+            {% for value, label in render_styles.items() %}
               <option value="{{ value }}">{{ label }}</option>
             {% endfor %}
           </select>
-          <small>Controls visible section labels in headings and, when enabled, the table of contents.</small>
+          <small>Apply Classic or Professional filing to fill the controls with suggested values. Every value remains editable; the preset adds no hidden rendering rules.</small>
         </label>
-        <label class="check"><input type="checkbox" name="include_toc"> Include visible table of contents</label>
-        <div class="full">
-          <small>PDF outline/bookmarks are always generated from Markdown sections, even when the visible TOC is off or visible section numbering is disabled.</small>
-        </div>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Output metadata</legend>
-      <div class="grid">
-        <label class="full">Document title
-          <input name="title" placeholder="Comment Letter">
-          <small>Stored as the PDF Title metadata. If blank, the source filename stem is used.</small>
+        <div class="full"><small>Rendered PDFs continue to use the Times family. Font sizes are in points; body line spacing is a multiplier of the body font size.</small></div>
+        <script id="render-presets" type="application/json">{{ render_presets|tojson }}</script>
+        <label>Body text size
+          <input type="number" name="body_font_size" value="12" min="6" max="36" step="0.1">
         </label>
-        <label>Author
-          <input name="author" placeholder="Organization or author">
+        <label>Body line spacing
+          <input type="number" name="line_spacing" value="1.3" min="1" max="3" step="0.05">
+          <small>1.3 means 15.6 pt leading with the default 12 pt body.</small>
         </label>
-        <label>Subject
-          <input name="subject" placeholder="Document subject or filing description">
+        <label>Section heading <code>##</code>
+          <input type="number" name="h1_font_size" value="16.5" min="6" max="36" step="0.1">
         </label>
-        <label class="full">Keywords
-          <input name="keywords" placeholder="securities, transfer agents, comment letter">
-          <small>Stored in the PDF Keywords metadata; comma-separated terms work well.</small>
+        <label>Subsection heading <code>###</code>
+          <input type="number" name="h2_font_size" value="13.7" min="6" max="36" step="0.1">
         </label>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Branding</legend>
-      <div class="grid">
-        <label>Logo image
-          <input id="logo" type="file" name="logo" accept="image/*">
+        <label>Minor heading <code>####</code>
+          <input type="number" name="h3_font_size" value="12.2" min="6" max="36" step="0.1">
         </label>
-        <label>Logo treatment
-          <select name="logo_treatment">
-            {% for value, label in image_treatments.items() %}
-              <option value="{{ value }}">{{ label }}</option>
-            {% endfor %}
-          </select>
+        <label>Deep headings <code>#####</code>+
+          <input type="number" name="h4_font_size" value="11" min="6" max="36" step="0.1">
         </label>
-        <label>Text wordmark
-          <input name="wordmark" placeholder="Used when no logo is uploaded">
+        <label>Footnotes
+          <input type="number" name="footnote_font_size" value="8.8" min="6" max="36" step="0.1">
         </label>
-        <div>
-          <img id="logo-preview" class="preview" alt="Logo preview">
-        </div>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Letterhead</legend>
-      <div class="grid">
-        <label class="check full"><input type="checkbox" name="show_date" checked> Show date in header</label>
+        <label>TOC title
+          <input type="number" name="toc_title_font_size" value="14" min="6" max="36" step="0.1">
+        </label>
+        <label>TOC entries
+          <input type="number" name="toc_entry_font_size" value="9.5" min="6" max="36" step="0.1">
+        </label>
+        <label>Wordmark
+          <input type="number" name="wordmark_font_size" value="18" min="6" max="36" step="0.1">
+        </label>
         <label>Date
-          <input type="date" name="date_value" value="{{ today }}">
+          <input type="number" name="date_font_size" value="10.5" min="6" max="36" step="0.1">
         </label>
-        <label>Date format
-          <select id="date-format" name="date_format">
-            {% for value, label in date_formats.items() %}
-              <option value="{{ value }}">{{ label }}</option>
-            {% endfor %}
+        <label>Submission subtitle
+          <input type="number" name="subtitle_font_size" value="9.5" min="6" max="36" step="0.1">
+        </label>
+        <label>Page headers
+          <input type="number" name="header_font_size" value="9.5" min="6" max="36" step="0.1">
+        </label>
+        <label>Page numbers
+          <input type="number" name="page_number_font_size" value="8.5" min="6" max="36" step="0.1">
+        </label>
+        <label>Paragraph alignment
+          <select name="body_alignment">
+            <option value="left">Left</option><option value="justify">Justified</option>
+            <option value="center">Centered</option><option value="right">Right</option>
           </select>
         </label>
-        <label id="custom-date-row" class="full" hidden>Custom date format
-          <input name="custom_date_format" value="%B %d, %Y">
-          <small>Python strftime syntax.</small>
-        </label>
-        <label class="full">Submission subtitle
-          <input name="submission_subtitle" placeholder="Submitted by email">
-          <small>Appears under the date in the first-page header.</small>
-        </label>
-        <label class="full">Addressee
-          <textarea name="addressee" placeholder="Vanessa A. Countryman&#10;Secretary&#10;Securities and Exchange Commission&#10;100 F Street NE&#10;Washington, DC 20549"></textarea>
-        </label>
-        <label class="check full"><input type="checkbox" name="addressee_box" checked> Render addressee in a letterhead box</label>
+        {% for group in ['Page layout', 'Paragraphs', 'Headings', 'Quotations', 'Footnotes'] %}
+        <details class="full">
+          <summary>{{ group }} settings</summary>
+          <div class="grid">
+            {% for name, control in presentation_controls.items() if control.group == group %}
+            <label>{{ control.label }}
+              <input type="number" name="{{ name }}" value="{{ typography_defaults|attr(name) }}"
+                     min="{{ control.min }}" max="{{ control.max }}" step="{{ control.step }}" required>
+            </label>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+        {% for name, label in presentation_toggles.items() %}
+        <input type="hidden" name="{{ name }}" value="0">
+        <label class="check"><input type="checkbox" name="{{ name }}" value="1"
+            {% if typography_defaults|attr(name) %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+        <small class="full">Automatic footnote sizing uses the maximum footnote area and keeps body text clear of notes. The top margin is a minimum; the Letterhead editor makes room for positioned fields.</small>
       </div>
     </fieldset>
 
-    <fieldset>
-      <legend>Headers &amp; footer</legend>
-      <div class="grid">
-        <label>First-page header
-          <input name="first_page_header" placeholder="Optional first-page header text">
-          <small>Shown only on page 1, below the main letterhead row.</small>
-        </label>
-        <label>Remaining-page header
-          <input name="remaining_page_header" placeholder="Optional header for pages 2+">
-          <small>Shown at the top of every page after the first.</small>
-        </label>
-        <label>Footer page count style
-          <select name="page_number_style">
-            {% for value, label in page_number_styles.items() %}
-              <option value="{{ value }}">{{ label }}</option>
-            {% endfor %}
-          </select>
-          <small>Total-page formats include footnote continuation pages.</small>
-        </label>
+      <fieldset class="wizard-page" data-step-title="Sections &amp; TOC">
+        <legend>Sections &amp; TOC</legend>
+        <div class="grid">
+          <label>Section numbering
+            <select name="section_numbering">
+              {% for value, label in section_numbering_styles.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>Controls visible section labels in headings and, when enabled, the table of contents.</small>
+          </label>
+          <label class="check"><input type="checkbox" name="include_toc"> Include visible table of contents</label>
+          <label>Footnote placement
+            <select name="footnote_placement">
+              {% for value, label in footnote_placements.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>Endnotes keep global numbering and links. H1 grouping collects notes at the document end under the H1 where each note is first cited.</small>
+          </label>
+          <label class="check full"><input type="checkbox" name="quote_inline_number_footnotes"> Enable inline numbered footnotes (<code>[11]</code>) in sourced blockquotes
+            <small>Off by default to avoid interpreting ordinary bracketed text as a citation. With this on, <code>[11]</code> and <code>[11]:</code> work only inside <code>[!QUOTE]</code> blocks with matching local definitions. Standard <code>[^11]</code> works without this setting.</small>
+          </label>
+          <div class="full">
+            <small>PDF outline/bookmarks are always generated from Markdown sections, even when the visible TOC is off or visible section numbering is disabled.</small>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Output metadata">
+        <legend>Output metadata</legend>
+        <div class="grid">
+          <label class="full">Previous PDF
+            <input type="file" name="previous_pdf" accept=".pdf,application/pdf">
+            <small>Optionally reuse Title, Author, Subject, and Keywords from an earlier PDF. Values entered below override inherited metadata.</small>
+          </label>
+          <label class="full">PDF title metadata
+            <input name="title" placeholder="Comment Letter">
+            <small>Stored only as the PDF Title metadata. If blank, the source filename stem is used.</small>
+          </label>
+          <label>Author
+            <input name="author" placeholder="Organization or author">
+          </label>
+          <label>Subject
+            <input name="subject" placeholder="Document subject or filing description">
+          </label>
+          <label class="full">Keywords
+            <input name="keywords" placeholder="securities, transfer agents, comment letter">
+            <small>Stored in the PDF Keywords metadata; comma-separated terms work well.</small>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Branding">
+        <legend>Branding</legend>
+        <div class="grid">
+          <label>Logo image
+            <input id="logo" type="file" name="logo" accept="image/*">
+          </label>
+          <label>Logo treatment
+            <select name="logo_treatment">
+              {% for value, label in image_treatments.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Text wordmark
+            <input name="wordmark" placeholder="Used when no logo is uploaded">
+          </label>
+          <div>
+            <img id="logo-preview" class="preview" alt="Logo preview">
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Signature">
+        <legend>Signature</legend>
+        <div class="grid">
+          <label>Signature image
+            <input id="signature" type="file" name="signature" accept="image/*">
+            <small>Optional handwritten signature image. White or transparent background works best.</small>
+          </label>
+          <div>
+            <img id="signature-preview" class="preview" alt="Signature preview">
+          </div>
+          <div class="full">
+            <small>Put <code>[[signature]]</code> on its own line in Markdown. The tag renders a short signing line and, when supplied, places this image on it. Keep “Sincerely,” your name, title, and other sign-off text in the Markdown itself.</small>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Letterhead">
+        <legend>Letterhead</legend>
+        <div class="grid">
+          <label class="full">First-page header
+            <input name="first_page_header" placeholder="Optional first-page header text">
+            <small>Always shown as the topmost element on page 1, above the logo, visible document title, date, and other letterhead content. Supports Markdown links such as [Label](https://example.com).</small>
+          </label>
+          <label class="full">Visible document title
+            <input name="document_title" placeholder="In re File No. SR-OCC-2025-801">
+            <small>Rendered prominently on page 1. This is separate from the PDF Title metadata above.</small>
+          </label>
+          <label>Quote #
+            <input name="quote_number" placeholder="Optional reference number">
+            <small>Shown in the top-right of page 1 as <code>Quote # …</code>.</small>
+          </label>
+          <label class="check full"><input type="checkbox" name="show_date" checked> Show date in header</label>
+          <label>Date
+            <input type="date" name="date_value" value="{{ today }}">
+          </label>
+          <label>Date format
+            <select id="date-format" name="date_format">
+              {% for value, label in date_formats.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label id="custom-date-row" class="full" hidden>Custom date format
+            <input name="custom_date_format" value="%B %d, %Y">
+            <small>Python strftime syntax.</small>
+          </label>
+          <label class="full">Submission subtitle
+            <input name="submission_subtitle" placeholder="Submitted by email">
+            <small>Appears beneath the date in the first-page letterhead.</small>
+          </label>
+          <label class="full">Addressee
+            <textarea name="addressee" placeholder="Vanessa A. Countryman&#10;Secretary&#10;Securities and Exchange Commission&#10;100 F Street NE&#10;Washington, DC 20549"></textarea>
+          </label>
+          <div class="addressee-actions full">
+            <button type="button" id="fill-countryman">Use SEC</button>
+          </div>
+
+          <section class="letterhead-layout-settings full" aria-label="First-page layout editor">
+            <label class="check"><input type="checkbox" id="letterhead-layout-enabled" name="letterhead_layout_enabled" value="1"> Customize positions on the first page</label>
+            <small>Drag fields on the page sketch or use arrow keys to nudge a selected field. This changes only the first page; existing letterheads stay unchanged until enabled.</small>
+            <input type="hidden" name="letterhead_layout" id="letterhead-layout-json">
+            <div id="letterhead-editor" class="letterhead-editor" hidden>
+              <div class="letterhead-stage-column">
+                <div id="letterhead-stage" class="letterhead-stage" role="group" aria-label="Drag-and-drop first-page letterhead layout"></div>
+                <small>Approximate placement preview. The PDF preserves the field positions and makes room for the letterhead above the body.</small>
+              </div>
+              <div class="letterhead-inspector">
+                <label>Selected field
+                  <select id="letterhead-selected"></select>
+                </label>
+                <label class="check"><input type="checkbox" id="letterhead-visible" checked> Include this field</label>
+                <label>Text alignment
+                  <select id="letterhead-align">
+                    <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                  </select>
+                </label>
+                <label>Horizontal position (%)
+                  <input id="letterhead-x" type="number" min="0" max="100" step="0.1" value="0">
+                </label>
+                <label>Vertical position (%)
+                  <input id="letterhead-y" type="number" min="0" max="100" step="0.1" value="0">
+                </label>
+                <label>Field width <span id="letterhead-width-value">100%</span>
+                  <input id="letterhead-width" type="range" min="16" max="100" value="100">
+                </label>
+                <div id="letterhead-custom-controls" hidden>
+                  <label>Custom label <input id="letterhead-custom-label" maxlength="80" placeholder="Reference"></label>
+                  <label>Custom content <textarea id="letterhead-custom-text" maxlength="500" placeholder="Your own text"></textarea></label>
+                  <button class="secondary" type="button" id="letterhead-remove-field">Remove custom field</button>
+                </div>
+                <button type="button" id="letterhead-add-field">Add custom field</button>
+                <button class="secondary" type="button" id="letterhead-reset">Reset positions</button>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Running header &amp; footer">
+        <legend>Running header &amp; footer</legend>
+        <div class="grid">
+          <label>Remaining-page header
+            <input name="remaining_page_header" placeholder="Optional header for pages 2+">
+            <small>Shown at the top of every page after the first. Supports Markdown links such as [Label](https://example.com).</small>
+          </label>
+          <label>Footer page count style
+            <select name="page_number_style">
+              {% for value, label in page_number_styles.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>Total-page formats include footnote continuation pages.</small>
+          </label>
+          <label class="check full"><input type="checkbox" name="draft_footer"> Add DRAFT footer watermark</label>
+          <div class="full"><small>Optional, and off by default. Adds a subtle draft reference and source Git commit to every page, including footnote continuation pages.</small></div>
+          <label>Draft reference
+            <input name="draft_reference" maxlength="64" placeholder="S7-2026-25 — revision 2">
+            <small>Optional identifier displayed after DRAFT.</small>
+          </label>
+          <label>Latest source commit SHA
+            <input name="latest_commit" pattern="[0-9a-fA-F]{7,64}" maxlength="64" placeholder="Paste the commit SHA or look it up below" spellcheck="false">
+            <small>For private repositories, paste the commit. A supplied SHA takes precedence over GitHub lookup.</small>
+          </label>
+          <label>Public GitHub repository
+            <input name="source_repository" placeholder="owner/repository" spellcheck="false">
+            <small>When the SHA is blank, look up the latest commit on the default branch.</small>
+          </label>
+          <label>Source file path (optional)
+            <input name="source_path" placeholder="docs/letter.md" spellcheck="false">
+            <small>If supplied, find the most recent commit affecting this file instead of the repository's latest commit.</small>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Style">
+        <legend>Style</legend>
+        <div class="grid">
+          <label>Blockquote accent color
+            <input name="blockquote_color" value="" placeholder="Same as URL accent color" pattern="#[0-9a-fA-F]{6}" maxlength="7" title="Enter a six-digit hex color, such as #2E732E, or leave blank to use the URL accent color" spellcheck="false">
+            <small>Controls the left rule and, when enabled, the full border. Leave blank to match links.</small>
+          </label>
+          <label>Blockquote background color
+            <input name="blockquote_background_color" value="" placeholder="Same as blockquote accent" pattern="#[0-9a-fA-F]{6}" maxlength="7" title="Enter a six-digit hex color, such as #2E732E, or leave blank to use the blockquote accent color" spellcheck="false">
+            <small>Quote text automatically switches between black and white for contrast against the rendered background.</small>
+          </label>
+          <label>Blockquote background opacity (%)
+            <input type="number" name="blockquote_background_opacity" value="20" min="0" max="100" step="1" required>
+            <small>Use 0 for a transparent-looking background or 100 for a solid color.</small>
+          </label>
+          <label>Blockquote corner radius (pt)
+            <input type="number" name="blockquote_corner_radius" value="10" min="0" max="64" step="1" required>
+            <small>Rounds the right corners. Use 0 for square corners; short quotes limit the radius to half their height.</small>
+          </label>
+          <label class="check"><input type="checkbox" name="blockquote_border"> Draw a full border around blockquotes</label>
+          <label>Blockquote border width (pt)
+            <input type="number" name="blockquote_border_width" value="1" min="0.25" max="6" step="0.25" required>
+            <small>The border uses the blockquote accent color; the left accent rule remains emphasized.</small>
+          </label>
+          <details class="admonition-settings" open>
+            <summary>GitHub-flavored admonition blockquotes</summary>
+            <input type="hidden" name="admonitions_enabled" value="0">
+            <label class="check"><input type="checkbox" name="admonitions_enabled" value="1" checked> Interpret <code>&gt; [!NOTE]</code> and the other GitHub admonition markers as style variants</label>
+            <small class="admonition-help">The marker selects a blockquote style and is not printed. Headers are optional; when present they are centered in Times small caps. Clear a category color to inherit the regular blockquote accent.</small>
+            <div class="admonition-grid">
+              {% for kind in admonition_types %}
+              <div class="admonition-card">
+                <strong>{{ kind }}</strong>
+                <label>Optional header
+                  <input name="admonition_{{ kind|lower }}_header" value="" maxlength="80" placeholder="No header">
+                </label>
+                <label>Accent color
+                  <input name="admonition_{{ kind|lower }}_color" value="{{ admonition_default_colors[kind] }}" placeholder="Inherit blockquote color" pattern="#[0-9a-fA-F]{6}" maxlength="7" title="Enter a six-digit hex color or leave blank">
+                </label>
+                <label>Left indent (pt)
+                  <input type="number" name="admonition_{{ kind|lower }}_indent" value="18" min="0" max="144" step="1" required>
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+          <label class="check"><input type="checkbox" name="smart_quotes"> Use smart quotes in rendered PDF</label>
+          <label class="check"><input type="checkbox" name="underline_links" checked> Underline links (recommended for web)</label>
+          <div class="full link-color-setting">
+            <label for="link-color">URL accent color</label>
+            <div class="link-colors" role="group" aria-label="URL accent color">
+              <button type="button" class="color-swatch" data-color="#2E732E" style="--swatch: #2E732E" aria-label="Green (default)" aria-pressed="true"></button>
+              <button type="button" class="color-swatch" data-color="#43AF49" style="--swatch: #43AF49" aria-label="Bright green" aria-pressed="false"></button>
+              <button type="button" class="color-swatch" data-color="#2563EB" style="--swatch: #2563EB" aria-label="Blue" aria-pressed="false"></button>
+              <button type="button" class="color-swatch" data-color="#7C3AED" style="--swatch: #7C3AED" aria-label="Purple" aria-pressed="false"></button>
+              <button type="button" class="color-swatch" data-color="#B45309" style="--swatch: #B45309" aria-label="Amber" aria-pressed="false"></button>
+              <button type="button" class="color-swatch" data-color="#222222" style="--swatch: #222222" aria-label="Charcoal" aria-pressed="false"></button>
+              <input id="link-color" name="link_color" value="#2E732E" pattern="#[0-9a-fA-F]{6}" maxlength="7" required aria-label="Custom hex color" title="Enter a six-digit hex color, such as #2E732E" spellcheck="false">
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Licensing">
+        <legend>Licensing</legend>
+        <div class="grid">
+          <label>License preset
+            <select name="license_preset">
+              {% for value, label in license_presets.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>CC BY-SA 4.0 adds a compact reference at the end. GFDL 1.3 skips that boilerplate and appends the full license on new pages.</small>
+          </label>
+          <label class="full">License subtitle / additional note
+            <input name="license_subtitle" placeholder="Optional attribution, copyright notice, or extra licensing context">
+            <small>With CC BY-SA this appears beneath the compact reference. With GFDL it appears at the start of the appended license. With no preset it becomes a standalone compact end note.</small>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-page" data-step-title="Validate document">
+        <legend>Validate document</legend>
+        <p>Check your document for legal-style and URL issues before compiling. Validation is optional.</p>
+        <button id="validate-button" class="secondary" type="button">Validate document</button>
+        <div id="validation-result" class="validation" role="status" aria-live="polite"></div>
+      </fieldset>
+
+      <div class="wizard-actions">
+        <button id="back-button" class="secondary" type="button">Back</button>
+        <div class="action-group">
+          <button id="next-button" class="next-action" type="button">Next</button>
+        </div>
       </div>
-    </fieldset>
-
-    <div id="validation-result" class="validation" role="status" aria-live="polite"></div>
-
-    <div class="actions">
+    </div>
+    <div class="compile-actions">
       <button class="secondary" type="submit" formaction="/format" formtarget="_blank">Format Markdown</button>
-      <button id="validate-button" class="secondary" type="button">Validate document</button>
-      <button id="render-button" type="button">Render PDF</button>
-      <small>Formatting downloads a corrected Markdown copy; rendering still requires the submitted source to pass preflight.</small>
+      <button id="render-button" type="submit" aria-describedby="compile-status" disabled>Compile PDF</button>
+      <p id="compile-status" role="status" aria-live="polite">Add a document, adjust settings, then click Compile PDF.</p>
+      <small>Formatting downloads a corrected Markdown copy; rendering still uses the original submitted source.</small>
     </div>
   </form>
 </main>
+<a class="bug-report" href="https://github.com/JFWooten4/PDF-compiler/issues" target="_blank" rel="noopener noreferrer" aria-label="Report a bug on GitHub">🐛 Report a bug</a>
 <script>
   const themeToggle = document.getElementById('theme-toggle');
 
@@ -277,10 +751,178 @@
     preview.style.display = 'block';
   });
 
+  const signature = document.getElementById('signature');
+  const signaturePreview = document.getElementById('signature-preview');
+  signature.addEventListener('change', () => {
+    const file = signature.files && signature.files[0];
+    if (!file) { signaturePreview.style.display = 'none'; return; }
+    signaturePreview.src = URL.createObjectURL(file);
+    signaturePreview.style.display = 'block';
+  });
+
   const form = document.getElementById('compiler-form');
+  const outputFormat = document.getElementById('output-format');
+  const isWord = () => outputFormat.value !== 'pdf';
+  const outputName = () => (form.elements.output_name.value || 'document')
+    .replace(/\.(?:pdf|docx)$/i, '') + (isWord() ? '.docx' : '.pdf');
+  function downloadWord(url) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = outputName();
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
+  const linkColor = document.getElementById('link-color');
+  const colorSwatches = [...document.querySelectorAll('.color-swatch')];
+  function updateColorSwatches() {
+    colorSwatches.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.color === linkColor.value.toUpperCase())));
+  }
+  colorSwatches.forEach(button => button.addEventListener('click', () => {
+    linkColor.value = button.dataset.color;
+    updateColorSwatches();
+    linkColor.dispatchEvent(new Event('input', { bubbles: true }));
+  }));
+  linkColor.addEventListener('input', updateColorSwatches);
+  document.getElementById('fill-countryman').addEventListener('click', () => {
+    const addressee = form.elements.namedItem('addressee');
+    addressee.value = addressee.placeholder;
+    addressee.dispatchEvent(new Event('input', { bubbles: true }));
+    addressee.focus();
+  });
   const validationResult = document.getElementById('validation-result');
   const validateButton = document.getElementById('validate-button');
+  const wizardPages = [...document.querySelectorAll('.wizard-page')];
+  const stepTabs = [...document.querySelectorAll('.step-tab')];
+  const stepCount = document.getElementById('step-count');
+  const stepTitle = document.getElementById('step-title');
+  const progressFill = document.getElementById('progress-fill');
+  const backButton = document.getElementById('back-button');
+  const nextButton = document.getElementById('next-button');
   const renderButton = document.getElementById('render-button');
+  let currentStep = 0;
+  const compileStatus = document.getElementById('compile-status');
+  let preparedPdf = null;
+  let compileVersion = 0;
+  let compileRequest;
+
+  function hasDocument() {
+    return Boolean(form.elements.source.files.length || form.elements.markdown.value.trim());
+  }
+
+  function invalidateCompilation() {
+    compileVersion += 1;
+    compileRequest?.abort();
+    if (preparedPdf) URL.revokeObjectURL(preparedPdf);
+    preparedPdf = null;
+    renderButton.disabled = !hasDocument();
+    renderButton.classList.remove('ready');
+    compileStatus.textContent = hasDocument()
+      ? (isWord() ? 'Click Export Word to compile this editable document.' : 'Click Compile PDF to render with these settings.')
+      : 'Upload a Markdown file or paste text in Document.';
+  }
+
+  async function prepareCompilation() {
+    if (preparedPdf) return;
+    if (!hasDocument()) {
+      compileStatus.textContent = 'Upload a Markdown file or paste text in Document.';
+      return;
+    }
+    const invalid = [...form.elements].find(control => control.willValidate && !control.validity.valid);
+    if (invalid) {
+      compileStatus.textContent = `Check ${invalid.closest('label')?.firstChild.textContent.trim() || invalid.getAttribute('aria-label') || invalid.name} before compiling.`;
+      return;
+    }
+    const version = compileVersion;
+    compileRequest?.abort();
+    const request = new AbortController();
+    compileRequest = request;
+    renderButton.disabled = true;
+    compileStatus.textContent = isWord() ? 'Compiling Word document…' : 'Compiling PDF…';
+    try {
+      const response = await fetch('/render', { method: 'POST', body: new FormData(form), signal: request.signal });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Compilation failed. Check your document and settings.');
+      }
+      const expected = isWord() ? 'wordprocessingml.document' : 'application/pdf';
+      if (!response.headers.get('content-type')?.includes(expected)) {
+        throw new Error('The server did not return the selected format. Please try again.');
+      }
+      const pdf = await response.blob();
+      if (version !== compileVersion || request.signal.aborted) return;
+      preparedPdf = URL.createObjectURL(pdf);
+      renderButton.disabled = false;
+      renderButton.classList.add('ready');
+      compileStatus.textContent = isWord() ? 'Word document compiled. Click Export Word to download again.' : 'PDF compiled. Click Compile PDF to reopen it.';
+    } catch (error) {
+      if (version !== compileVersion || request.signal.aborted) return;
+      compileStatus.textContent = error.message;
+    } finally {
+      if (version === compileVersion) renderButton.disabled = !hasDocument();
+    }
+  }
+
+  outputFormat.addEventListener('change', () => {
+    form.elements.output_name.value = outputName();
+    renderButton.textContent = isWord() ? 'Export Word' : 'Compile PDF';
+  });
+  form.addEventListener('input', invalidateCompilation);
+  form.addEventListener('change', invalidateCompilation);
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (preparedPdf) {
+      if (isWord()) downloadWord(preparedPdf);
+      else window.open(preparedPdf, '_blank', 'noopener');
+      return;
+    }
+    // The PDF opens in a new tab, while Word triggers a download.
+    const preview = isWord() ? null : window.open('about:blank', '_blank');
+    if (preview) preview.opener = null;
+    await prepareCompilation();
+    if (preparedPdf) {
+      if (isWord()) downloadWord(preparedPdf);
+      else if (preview && !preview.closed) preview.location.replace(preparedPdf);
+    } else {
+      preview?.close();
+    }
+  });
+
+  function showStep(index, { focus = true } = {}) {
+    currentStep = Math.max(0, Math.min(index, wizardPages.length - 1));
+    const finalStep = currentStep === wizardPages.length - 1;
+
+    wizardPages.forEach((page, pageIndex) => {
+      const active = pageIndex === currentStep;
+      page.classList.toggle('is-active', active);
+      page.setAttribute('aria-hidden', String(!active));
+    });
+
+    stepTabs.forEach((tab, tabIndex) => {
+      if (tabIndex === currentStep) {
+        tab.setAttribute('aria-current', 'step');
+      } else {
+        tab.removeAttribute('aria-current');
+      }
+    });
+
+    stepCount.textContent = `Step ${currentStep + 1} of ${wizardPages.length}`;
+    stepTitle.textContent = wizardPages[currentStep].dataset.stepTitle;
+    progressFill.style.width = `${((currentStep + 1) / wizardPages.length) * 100}%`;
+    backButton.disabled = currentStep === 0;
+    nextButton.hidden = finalStep;
+
+    if (focus) {
+      wizardPages[currentStep].querySelector('input, select, textarea, button')?.focus({ preventScroll: true });
+    }
+  }
+
+  backButton.addEventListener('click', () => showStep(currentStep - 1));
+  nextButton.addEventListener('click', () => showStep(currentStep + 1));
+  stepTabs.forEach((tab) => {
+    tab.addEventListener('click', () => showStep(Number(tab.dataset.stepTarget)));
+  });
+  showStep(0, { focus: false });
 
   function showValidation(result) {
     validationResult.className = 'validation';
@@ -316,7 +958,6 @@
 
   async function runValidation() {
     validateButton.disabled = true;
-    renderButton.disabled = true;
     try {
       const response = await fetch('/validate', { method: 'POST', body: new FormData(form) });
       const result = await response.json();
@@ -325,14 +966,11 @@
       return showValidation({ error: `Validation request failed: ${error.message}` });
     } finally {
       validateButton.disabled = false;
-      renderButton.disabled = false;
     }
   }
 
   validateButton.addEventListener('click', runValidation);
-  renderButton.addEventListener('click', async () => {
-    if (await runValidation()) form.submit();
-  });
 </script>
+<script src="/static/letterhead-layout.js"></script>
 </body>
 </html>
