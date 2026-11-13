@@ -61,10 +61,19 @@ class MarkdownFormattingOptInTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('type="submit" formaction="/format"', html)
-        self.assertIn('>Format Markdown</button>', html)
+        self.assertIn('id="download-formatted-markdown" type="checkbox"', html)
         self.assertIn('id="render-button"', html)
-        self.assertIn('rendering still uses the original submitted source', html)
+        self.assertIn('Download formatted Markdown (.md) after PDF (optional)', html)
+        self.assertIn('The original source remains unchanged', html)
+        self.assertIn('window.PdfMarkdownDownload.downloadFormattedMarkdown(documentFormData())', html)
+        self.assertIn('if (formattedMarkdownOption.checked)', html)
+        self.assertNotIn('formaction="/format"', html)
+        self.assertNotIn('id="download-formatted-markdown" type="checkbox" checked', html)
+
+    def test_format_option_is_hidden_for_word_exports(self):
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn('formattedMarkdownRow.hidden = isWord()', html)
+        self.assertIn('if (wordExport) {', html)
 
     def test_format_requires_explicit_post(self):
         with patch("app.format_markdown", side_effect=AssertionError("unexpected format")) as formatter:

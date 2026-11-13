@@ -195,6 +195,8 @@
     button:hover { opacity: .9; }
     button:disabled { cursor: default; opacity: .45; }
     .compile-actions { margin-top: 20px; text-align: center; }
+    #formatted-markdown-row { justify-content: center; margin-bottom: 12px; }
+    #formatted-markdown-row[hidden] { display: none; }
     #render-button { background: var(--surface-subtle); color: var(--muted); opacity: 1; }
     #render-button.ready { background: #2E732E; color: white; }
     #compile-status { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
@@ -258,7 +260,7 @@
   <div class="topbar">
     <div>
       <h1>PDF Compiler</h1>
-      <p class="intro">Configure one section at a time, then validate, download normalized Markdown, or export your PDF or editable Word document.</p>
+      <p class="intro">Configure one section at a time, then validate and export your PDF or editable Word document.</p>
     </div>
     <div class="action-group">
       <button id="export-config" class="secondary" type="button">Export config</button>
@@ -730,14 +732,15 @@
       </div>
     </div>
     <div class="compile-actions">
-      <button class="secondary" type="submit" formaction="/format" formtarget="_blank">Format Markdown</button>
+      <label class="check" id="formatted-markdown-row"><input id="download-formatted-markdown" type="checkbox"> Download formatted Markdown (.md) after PDF (optional)</label>
       <button id="render-button" type="submit" aria-describedby="compile-status" disabled>Compile PDF</button>
       <p id="compile-status" role="status" aria-live="polite">Add a document, adjust settings, then click Compile PDF.</p>
-      <small>Formatting downloads a corrected Markdown copy; rendering still uses the original submitted source.</small>
+      <small>The PDF opens first. If selected, a separate normalized Markdown file downloads afterward. The original source remains unchanged.</small>
     </div>
   </form>
 </main>
 <a class="bug-report" href="https://github.com/JFWooten4/PDF-compiler/issues" target="_blank" rel="noopener noreferrer" aria-label="Report a bug on GitHub">🐛 Report a bug</a>
+<script src="/static/markdown-download.js"></script>
 <script>
   const themeToggle = document.getElementById('theme-toggle');
 
@@ -782,6 +785,8 @@
 
   const form = document.getElementById('compiler-form');
   const outputFormat = document.getElementById('output-format');
+  const formattedMarkdownOption = document.getElementById('download-formatted-markdown');
+  const formattedMarkdownRow = document.getElementById('formatted-markdown-row');
   const isWord = () => outputFormat.value !== 'pdf';
   const outputName = () => (form.elements.output_name.value || 'document')
     .replace(/\.(?:pdf|docx)$/i, '') + (isWord() ? '.docx' : '.pdf');
@@ -957,25 +962,49 @@
   outputFormat.addEventListener('change', () => {
     form.elements.output_name.value = outputName();
     renderButton.textContent = isWord() ? 'Export Word' : 'Compile PDF';
+    formattedMarkdownRow.hidden = isWord();
   });
-  form.addEventListener('input', invalidateCompilation);
-  form.addEventListener('change', invalidateCompilation);
+  formattedMarkdownRow.hidden = isWord();
+  form.addEventListener('input', event => {
+    if (event.target !== formattedMarkdownOption) invalidateCompilation();
+  });
+  form.addEventListener('change', event => {
+    if (event.target !== formattedMarkdownOption) invalidateCompilation();
+  });
+  let submitting = false;
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (preparedPdf) {
-      if (isWord()) downloadWord(preparedPdf);
-      else window.open(preparedPdf, '_blank', 'noopener');
-      return;
-    }
-    // The PDF opens in a new tab, while Word triggers a download.
-    const preview = isWord() ? null : window.open('about:blank', '_blank');
+    if (submitting) return;
+    submitting = true;
+    const wordExport = isWord();
+    // Open the PDF tab synchronously before any awaits to avoid popup blockers.
+    const preview = wordExport ? null : window.open('about:blank', '_blank');
     if (preview) preview.opener = null;
-    await prepareCompilation();
-    if (preparedPdf) {
-      if (isWord()) downloadWord(preparedPdf);
-      else if (preview && !preview.closed) preview.location.replace(preparedPdf);
-    } else {
-      preview?.close();
+    try {
+      if (!preparedPdf) await prepareCompilation();
+      if (!preparedPdf) {
+        preview?.close();
+        return;
+      }
+      if (wordExport) {
+        downloadWord(preparedPdf);
+        return;
+      }
+      if (!preview || preview.closed) {
+        compileStatus.textContent = 'PDF compiled, but the preview was blocked. Allow popups and click Compile PDF again.';
+        return;
+      }
+      preview.location.replace(preparedPdf);
+      // Explicit opt-in only: keep formatting separate from the PDF renderer.
+      if (formattedMarkdownOption.checked) {
+        try {
+          await window.PdfMarkdownDownload.downloadFormattedMarkdown(documentFormData());
+        } catch (error) {
+          compileStatus.textContent = `PDF opened, but the formatted Markdown download failed: ${error.message}`;
+        }
+      }
+    } finally {
+      submitting = false;
     }
   });
 
