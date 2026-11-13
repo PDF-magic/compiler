@@ -726,7 +726,7 @@ class ConfiguredPdfRenderer(PdfRenderer):
             if image_match:
                 flush_paragraph()
                 flush_quote()
-                image_path = resolve_document_image(self.source, image_match.group(1), getattr(self, "allowed_image_root", None))
+                image_path = self._resolve_image_reference(image_match.group(1))
                 if image_path.exists():
                     with PILImage.open(image_path) as image:
                         width, height = image.size

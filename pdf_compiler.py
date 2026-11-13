@@ -397,6 +397,12 @@ class PdfRenderer:
 
         return create_signature_asset(self.signature)
 
+    def _resolve_image_reference(self, reference: str) -> Path:
+        """Allow only this renderer's generated signature outside the document root."""
+        if self._signature_asset is not None and reference == self._signature_asset.as_posix():
+            return self._signature_asset
+        return resolve_document_image(self.source, reference, getattr(self, "allowed_image_root", None))
+
     def _cleanup_signature_asset(self) -> None:
         finalizer = self._signature_asset_finalizer
         if finalizer is not None and finalizer.alive:
@@ -1103,7 +1109,7 @@ class PdfRenderer:
             if image_match:
                 flush_paragraph()
                 flush_quote()
-                image_path = resolve_document_image(self.source, image_match.group(1), getattr(self, "allowed_image_root", None))
+                image_path = self._resolve_image_reference(image_match.group(1))
                 if image_path.exists():
                     with PILImage.open(image_path) as image:
                         width, height = image.size
