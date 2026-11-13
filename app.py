@@ -27,6 +27,7 @@ from configured_renderer import (
     LetterSettings,
 )
 from first_page_layout import FirstPagePdfRenderer, parse_letterhead_layout
+from emoji_renderer import EMOJI_STYLES, emoji_preview, validate_emoji_style
 from pdf_compiler import ADMONITION_DEFAULT_COLORS, ADMONITION_TYPES, LINK_COLOR
 from pdfa4_export import render_pdf as render_with_format
 from legal_style_validator import validate_legal_style
@@ -162,6 +163,7 @@ def index():
                    else getattr(TypographySettings.for_style(style), name))
             for name in PROFESSIONAL_TYPOGRAPHY
         } for style in RENDER_STYLES},
+        emoji_styles=EMOJI_STYLES,
         date_formats=DATE_FORMATS,
         image_treatments=IMAGE_TREATMENTS,
         page_number_styles=PAGE_NUMBER_STYLES,
@@ -177,9 +179,26 @@ def index():
         '  <script src="/static/letterhead-presets.js"></script>\n'
         '  <script src="/static/plain-link-options.js"></script>\n'
         '  <script src="/static/render-styles.js"></script>\n'
-        '  <script src="/static/configuration.js"></script>\n</body>',
+        '  <script src="/static/configuration.js"></script>\n'
+        '  <script src="/static/emoji-styles.js"></script>\n</body>',
         1,
     )
+
+
+@app.post("/emoji-preview")
+def preview_emoji_style():
+    selected = request.form.get("emoji_style", "twemoji")
+    uploaded = request.files.get("emoji_pack")
+    try:
+        with TemporaryDirectory(prefix="pdf-emoji-preview-") as temp:
+            pack = None
+            if selected != "twemoji" and uploaded and uploaded.filename:
+                pack = Path(temp) / "style.zip"
+                uploaded.save(pack)
+            content = emoji_preview(selected, pack)
+        return send_file(BytesIO(content), mimetype="image/png")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @app.post("/validate")
@@ -376,6 +395,17 @@ def render_pdf():
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+        emoji_style = request.form.get("emoji_style", "twemoji")
+        uploaded_emoji = request.files.get("emoji_pack")
+        emoji_pack = None
+        if emoji_style != "twemoji" and uploaded_emoji and uploaded_emoji.filename:
+            emoji_pack = root / "emoji-style.zip"
+            uploaded_emoji.save(emoji_pack)
+        try:
+            validate_emoji_style(emoji_style, emoji_pack)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
         output = root / "output.pdf"
         try:
             renderer = FirstPagePdfRenderer(
@@ -394,6 +424,8 @@ def render_pdf():
                 keywords=metadata_value("keywords"),
                 smart_quotes=truthy("smart_quotes"),
                 quote_inline_number_footnotes=truthy("quote_inline_number_footnotes"),
+                emoji_style=emoji_style,
+                emoji_pack=emoji_pack,
                 underline_links=truthy("underline_links"),
                 hide_url_scheme=truthy("hide_url_scheme"),
                 link_color=link_color,

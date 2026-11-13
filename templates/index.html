@@ -305,6 +305,22 @@
             <input id="document-folder" type="file" name="document_files" webkitdirectory directory multiple>
             <small>Choose a folder with one Markdown file and referenced raster images, including subfolders.</small>
           </label>
+          <label>Emoji artwork style
+            <select id="emoji-style" name="emoji_style">
+              {% for value, label in emoji_styles.items() %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <small>The author chooses the final emoji appearance, rather than the reader's device.</small>
+          </label>
+          <label>Emoji style assets (PNG ZIP)
+            <input id="emoji-pack" name="emoji_pack" type="file" accept=".zip,application/zip">
+            <small>Non-Twemoji styles need a pack unless installed on the server. Use PNGs named like 1f600.png and check the license.</small>
+          </label>
+          <div class="full">
+            <img id="emoji-preview" class="preview" alt="Actual selected emoji artwork preview">
+            <small id="emoji-preview-status" role="status" aria-live="polite"></small>
+          </div>
           <label>Output filename
             <input name="output_name" value="document.pdf">
           </label>

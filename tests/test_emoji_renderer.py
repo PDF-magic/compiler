@@ -63,6 +63,37 @@ class EmojiRendererTests(unittest.TestCase):
             self.assertGreater(pages, 2)
             self.assertIn(b"/Subtype /Image", output.read_bytes())
 
+    def test_selected_pack_does_not_fall_back(self):
+        from zipfile import ZipFile
+        from emoji_renderer import emoji_style_scope, validate_emoji_style
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "noto.zip"
+            bundled = Path(__file__).resolve().parents[1] / "assets" / "twemoji" / "72x72.zip"
+            with ZipFile(bundled) as source, ZipFile(path, "w") as target:
+                name = next(name for name in source.namelist() if name.endswith("1f600.png"))
+                target.writestr("1f600.png", source.read(name))
+            validate_emoji_style("noto", path)
+            with emoji_style_scope("noto", path):
+                self.assertEqual(emoji_markup("😀", 14).count("<img "), 1)
+                with self.assertRaisesRegex(ValueError, "does not include emoji"):
+                    emoji_markup("👍🏽", 14)
+            with self.assertRaisesRegex(ValueError, "unavailable"):
+                validate_emoji_style("noto")
+
+    def test_preview_and_invalid_style_web_handling(self):
+        from app import app
+        with app.test_client() as client:
+            page = client.get("/")
+            self.assertIn(b'name="emoji_style"', page.data)
+            self.assertIn(b'name="emoji_pack"', page.data)
+            response = client.post("/emoji-preview", data={"emoji_style": "twemoji"})
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.data.startswith(b"\x89PNG\r\n\x1a\n"))
+            response = client.post("/render", data={"markdown": "# Emoji 😀",
+                                                   "emoji_style": "noto"})
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(b"unavailable", response.data)
+
 
 if __name__ == "__main__":
     unittest.main()
