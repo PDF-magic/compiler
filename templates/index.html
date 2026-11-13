@@ -912,15 +912,16 @@
         const error = await response.json().catch(() => ({}));
         throw new Error(error.error || 'Compilation failed. Check your document and settings.');
       }
-      if (!response.headers.get('content-type')?.includes('application/pdf')) {
-        throw new Error('The server did not return a PDF. Please try again.');
+      const expected = isWord() ? 'wordprocessingml.document' : 'application/pdf';
+      if (!response.headers.get('content-type')?.includes(expected)) {
+        throw new Error('The server did not return the selected format. Please try again.');
       }
       const pdf = await response.blob();
       if (version !== compileVersion || request.signal.aborted) return;
       preparedPdf = URL.createObjectURL(pdf);
       renderButton.disabled = false;
       renderButton.classList.add('ready');
-      compileStatus.textContent = 'PDF compiled. Click Compile PDF to reopen it.';
+      compileStatus.textContent = isWord() ? 'Word document compiled. Click Export Word to download again.' : 'PDF compiled. Click Compile PDF to reopen it.';
     } catch (error) {
       if (version !== compileVersion || request.signal.aborted) return;
       compileStatus.textContent = error.message;
@@ -929,20 +930,26 @@
     }
   }
 
+  outputFormat.addEventListener('change', () => {
+    form.elements.output_name.value = outputName();
+    renderButton.textContent = isWord() ? 'Export Word' : 'Compile PDF';
+  });
   form.addEventListener('input', invalidateCompilation);
   form.addEventListener('change', invalidateCompilation);
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (preparedPdf) {
-      window.open(preparedPdf, '_blank', 'noopener');
+      if (isWord()) downloadWord(preparedPdf);
+      else window.open(preparedPdf, '_blank', 'noopener');
       return;
     }
-    // Open during the click so the completed PDF is not blocked as a popup.
-    const preview = window.open('about:blank', '_blank');
+    // The PDF opens in a new tab, while Word triggers a download.
+    const preview = isWord() ? null : window.open('about:blank', '_blank');
     if (preview) preview.opener = null;
     await prepareCompilation();
     if (preparedPdf) {
-      if (preview && !preview.closed) preview.location.replace(preparedPdf);
+      if (isWord()) downloadWord(preparedPdf);
+      else if (preview && !preview.closed) preview.location.replace(preparedPdf);
     } else {
       preview?.close();
     }
