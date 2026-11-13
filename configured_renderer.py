@@ -27,7 +27,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, alpha, roman
+from pdf_compiler import PdfRenderer, RefParagraph, TrackingDoc, advance_code_fence, alpha, roman
 from emoji_renderer import EmojiParagraph as Paragraph
 
 
@@ -443,7 +443,6 @@ class ConfiguredPdfRenderer(PdfRenderer):
         current_title: str | None = None
         current_numbers: list[int] | None = None
         seen: set[int] = set()
-        in_fence = False
         fence_marker: str | None = None
 
         def active_group() -> list[int]:
@@ -454,17 +453,8 @@ class ConfiguredPdfRenderer(PdfRenderer):
             return current_numbers
 
         for raw_line in self.body_text.splitlines():
-            stripped = raw_line.lstrip()
-            if stripped.startswith("```") or stripped.startswith("~~~"):
-                marker = stripped[:3]
-                if not in_fence:
-                    in_fence = True
-                    fence_marker = marker
-                elif marker == fence_marker:
-                    in_fence = False
-                    fence_marker = None
-                continue
-            if in_fence:
+            fence_marker, boundary = advance_code_fence(raw_line, fence_marker)
+            if boundary or fence_marker is not None:
                 continue
 
             heading = re.match(r"^#\s+(.*)$", raw_line.rstrip())
@@ -472,7 +462,9 @@ class ConfiguredPdfRenderer(PdfRenderer):
                 current_title = self.clean_heading(heading.group(1))
                 current_numbers = None
 
-            for match in self.note_ref_re.finditer(raw_line):
+            for match in self.note_ref_re.finditer(
+                self.inline_code_re.sub("", raw_line)
+            ):
                 number = self.nums.get(match.group(1))
                 if number is None or number in seen:
                     continue
@@ -649,7 +641,6 @@ class ConfiguredPdfRenderer(PdfRenderer):
 
         paragraph_lines: list[str] = []
         quote_lines: list[str] = []
-        in_fence = False
         fence_marker: str | None = None
         toc_inserted = False
         counts = {level: 0 for level in range(2, 7)}
@@ -691,20 +682,14 @@ class ConfiguredPdfRenderer(PdfRenderer):
             line = raw_line.rstrip()
             stripped = line.lstrip()
 
-            if stripped.startswith("```") or stripped.startswith("~~~"):
+            fence_marker, boundary = advance_code_fence(line, fence_marker)
+            if boundary:
                 flush_paragraph()
                 flush_quote()
-                marker = stripped[:3]
-                if not in_fence:
-                    in_fence = True
-                    fence_marker = marker
-                elif marker == fence_marker:
-                    in_fence = False
-                    fence_marker = None
                 continue
-            if in_fence:
+            if fence_marker is not None:
                 if line.strip():
-                    story.append(self.paragraph(line, self.styles["BodyX"]))
+                    story.append(self.code_paragraph(line))
                 continue
             toc_marker_level = self._toc_marker_level(line)
             if toc_marker_level is not None:
