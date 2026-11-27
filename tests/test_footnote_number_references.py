@@ -6,12 +6,12 @@ from pdf_compiler import PdfRenderer
 
 
 class FootnoteNumberReferenceTests(unittest.TestCase):
-    def renderer_for(self, markdown: str):
+    def renderer_for(self, markdown: str, **kwargs):
         temp = TemporaryDirectory()
         root = Path(temp.name)
         source = root / "document.md"
         source.write_text(markdown, encoding="utf-8")
-        renderer = PdfRenderer(source, root / "output.pdf")
+        renderer = PdfRenderer(source, root / "output.pdf", **kwargs)
         return temp, renderer
 
     def test_interpolates_assigned_note_number(self):
@@ -61,6 +61,48 @@ class FootnoteNumberReferenceTests(unittest.TestCase):
 
         self.assertEqual(renderer.order, ["ref-a"])
         self.assertEqual(renderer.nums["ref-a"], 1)
+
+    def test_automatic_short_notes(self):
+        temp, renderer = self.renderer_for(
+            "A.[^a] Again.[^a]\n\nB.[^b]\n\nA again.[^a] Again.[^a]\n\n"
+            "[^a]: Source A.\n[^b]: Source B.\n",
+            repeated_footnotes="supra",
+        )
+        self.addCleanup(temp.cleanup)
+        self.assertEqual(len(renderer.order), 5)
+        self.assertEqual(renderer.nums["a"], 1)
+        self.assertEqual(renderer.nums["b"], 3)
+        definitions = [renderer.note_defs[key] for key in renderer.order]
+        self.assertEqual(definitions, [
+            "Source A.", "_Id._", "Source B.", "_See supra_ note {a}.", "_Id._",
+        ])
+        rendered, _ = renderer.markdown_inline(definitions[3], False)
+        self.assertEqual(rendered, '<i>See supra</i> note <link href="#footnote-1">1</link>.')
+        self.assertEqual(renderer.build()[1], 5)
+        self.assertIn("Again.[^a]", renderer.source.read_text(encoding="utf-8"))
+
+    def test_full_repeated_notes(self):
+        temp, renderer = self.renderer_for(
+            "A.[^a] Again.[^a]\n\n[^a]: Source A.\n",
+            repeated_footnotes="full",
+        )
+        self.addCleanup(temp.cleanup)
+        self.assertEqual([renderer.note_defs[key] for key in renderer.order],
+                         ["Source A.", "Source A."])
+
+    def test_short_notes_ignore_literal_and_quote_local_references(self):
+        temp, renderer = self.renderer_for(
+            "A.[^a]\n\n`[^b]`\n\n~~~markdown\n[^b]\n~~~\n\n"
+            "> [!QUOTE]\n> Quoted.[^b]\n> [^b]: Local.\n\n"
+            "Again.[^a]\n\n[^a]: Source A.\n[^b]: Source B.\n",
+            repeated_footnotes="supra",
+        )
+        self.addCleanup(temp.cleanup)
+        self.assertEqual([renderer.note_defs[key] for key in renderer.order],
+                         ["Source A.", "_Id._"])
+        self.assertIn("> Quoted.[^b]", renderer.body_text)
+        self.assertIn("`[^b]`", renderer.body_text)
+        self.assertEqual(renderer.build()[1], 2)
 
     def test_single_brace_reference_with_whitespace(self):
         temp, renderer = self.renderer_for(
