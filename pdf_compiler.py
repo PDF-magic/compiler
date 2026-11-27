@@ -261,7 +261,7 @@ def smarten_quotes(text: str) -> str:
 
 
 
-def protect_inline_code(text: str) -> tuple[str, dict[str, str]]:
+def protect_inline_code(text: str, *, preserve_source: bool = False) -> tuple[str, dict[str, str]]:
     """Protect backtick code spans and escaped backticks from Markdown parsing.
 
     Code spans use matching backtick-run lengths. Newlines become spaces;
@@ -290,7 +290,7 @@ def protect_inline_code(text: str) -> tuple[str, dict[str, str]]:
             slash_count += 1
         if slash_count % 2:
             result.append(text[cursor:index - 1])
-            result.append(token("`"))
+            result.append(token(text[index - 1:index + 1] if preserve_source else "`"))
             index += 1
             cursor = index
             continue
@@ -322,7 +322,10 @@ def protect_inline_code(text: str) -> tuple[str, dict[str, str]]:
         if content.startswith(" ") and content.endswith(" ") and content.strip(" "):
             content = content[1:-1]
         result.append(text[cursor:index])
-        result.append(token(f'<font name="Courier">{html.escape(content, quote=False)}</font>'))
+        result.append(token(
+            text[index:closing_end] if preserve_source
+            else f'<font name="Courier">{html.escape(content, quote=False)}</font>'
+        ))
         index = closing_end
         cursor = index
 
@@ -446,6 +449,7 @@ class PdfRenderer:
         smart_quotes: bool = False,
         quote_inline_number_footnotes: bool = False,
         quote_source_before_footnotes: bool = False,
+        repeated_footnotes: str = "reuse",
         emoji_style: str = "twemoji",
         emoji_pack: Path | None = None,
         underline_links: bool = True,
@@ -461,6 +465,9 @@ class PdfRenderer:
         self.smart_quotes = smart_quotes
         self.quote_inline_number_footnotes = quote_inline_number_footnotes
         self.quote_source_before_footnotes = quote_source_before_footnotes
+        if repeated_footnotes not in {"reuse", "full", "supra"}:
+            raise ValueError("Unknown repeated footnote mode.")
+        self.repeated_footnotes = repeated_footnotes
         validate_emoji_style(emoji_style, emoji_pack)
         self.emoji_style = emoji_style
         self.emoji_pack = emoji_pack
@@ -486,6 +493,8 @@ class PdfRenderer:
         self.body_text, self.note_defs = extract_footnotes(body)
         self.body_text = normalize_page_breaks(self.body_text)
         self._prepare_signature_directives()
+        if self.repeated_footnotes != "reuse":
+            self.expand_repeated_footnotes()
         self.prime_note_numbers()
         self.styles = self._styles()
 
@@ -998,6 +1007,75 @@ class PdfRenderer:
     @staticmethod
     def note_destination(number: int) -> str:
         return f"footnote-{number}"
+
+    def expand_repeated_footnotes(self) -> None:
+        """Give repeated document citations unique keys without changing the source file."""
+        prefix = "pdfcompiler-repeat-"
+        reserved = self.body_text + "\n" + "\n".join(self.note_defs) + "\n" + "\n".join(self.note_defs.values())
+        while prefix in reserved:
+            prefix += "x"
+        seen: set[str] = set()
+        previous: str | None = None
+        serial = 0
+
+        def expand(text: str, local_notes: dict[str, str]) -> str:
+            nonlocal previous, serial
+
+            def replace(match: re.Match[str]) -> str:
+                nonlocal previous, serial
+                key = match.group(1)
+                if key in local_notes:
+                    return match.group(0)
+                consecutive = key == previous
+                previous = key
+                # Do not turn an unresolved reference into an apparently valid citation.
+                if key not in self.note_defs or key not in seen:
+                    seen.add(key)
+                    return match.group(0)
+                serial += 1
+                alias = f"{prefix}{serial}"
+                if self.repeated_footnotes == "full":
+                    self.note_defs[alias] = self.note_defs[key]
+                elif consecutive:
+                    self.note_defs[alias] = "_Id._"
+                else:
+                    self.note_defs[alias] = f"_See supra_ note {{{key}}}."
+                return f"[^{alias}]"
+
+            return self.note_ref_re.sub(replace, text)
+
+        # Fence boundaries must be identified before shielding inline code. Preserve
+        # original code spans rather than replacing them with rendered HTML.
+        lines = self.body_text.splitlines()
+        index = 0
+        fence_marker: str | None = None
+        while index < len(lines):
+            fence_marker, boundary = advance_code_fence(lines[index], fence_marker)
+            if boundary or fence_marker is not None:
+                index += 1
+                continue
+            start = index
+            if lines[index].startswith(">"):
+                while index < len(lines) and lines[index].startswith(">"):
+                    index += 1
+                quote_lines = [line.lstrip(">").strip() for line in lines[start:index]]
+                local_notes = self.quotation_local_notes(quote_lines) if (
+                    quote_lines and re.fullmatch(r"\[!QUOTE\]\s*", quote_lines[0], re.IGNORECASE)
+                ) else {}
+            else:
+                while index < len(lines) and not lines[index].startswith(">"):
+                    _, boundary = advance_code_fence(lines[index], None)
+                    if boundary:
+                        break
+                    index += 1
+                local_notes = {}
+            chunk = "\n".join(lines[start:index])
+            shielded, spans = protect_inline_code(chunk, preserve_source=True)
+            expanded = expand(shielded, local_notes)
+            for token, original in spans.items():
+                expanded = expanded.replace(token, original)
+            lines[start:index] = expanded.split("\n")
+        self.body_text = "\n".join(lines)
 
     def prime_note_numbers(self) -> None:
         """Assign final note numbers from real footnote citations before rendering."""
@@ -1560,6 +1638,10 @@ def main() -> int:
         action="store_true",
         help="Place [!SOURCE] attribution before quote-local footnotes (off by default)",
     )
+    parser.add_argument(
+        "--repeated-footnotes", choices=("reuse", "full", "supra"), default="reuse",
+        help="Reuse note numbers, or generate full or Id./supra notes for repeated citations",
+    )
     args = parser.parse_args()
 
     output = args.output or args.source.with_suffix(".pdf")
@@ -1587,6 +1669,7 @@ def main() -> int:
         smart_quotes=args.smart_quotes,
         quote_inline_number_footnotes=args.quote_inline_number_footnotes,
         quote_source_before_footnotes=args.quote_source_before_footnotes,
+        repeated_footnotes=args.repeated_footnotes,
         emoji_style=args.emoji_style,
         emoji_pack=args.emoji_pack,
         **presentation,

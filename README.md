@@ -117,6 +117,20 @@ _See supra note_ {ref-a}.
 
 If `ref-a` is ultimately note 7, the rendered text reads `See supra note 7.` The compiler determines numbers from real `[^key]` citations before rendering, so `{key}` does not create a footnote or change numbering and can safely appear before or after the citation. An unknown `{key}` is left visible rather than being assigned a number. The previous double-braced syntax (`{{key}}`) is no longer interpolated. References and citations inside fenced code blocks or inline code spans are shown literally and never influence footnote numbering.
 
+### Repeated footnote citations
+
+Under **Sections & TOC**, choose **Repeated footnote references**, or use
+`--repeated-footnotes reuse|full|supra` on the CLI. The default (`reuse`)
+preserves the original numbering. The `full` mode assigns each occurrence
+a new number with the full definition. The `supra` mode assigns each
+occurrence a new number, uses _Id._ for consecutive citations to the same
+defined key, and _See supra_ note {key}. for nonconsecutive repeats, with
+the final note number linked to the first full citation. The word “note”
+and the number are not italicized. Numbering depends on citation order,
+not page or paragraph placement. The source Markdown, code spans, fences,
+and quotation-local citations are unchanged. This option applies to PDF
+output, including endnotes; Word exports retain their existing behavior.
+
 ## Optional PDF/A-4 output
 
 Standard PDF remains the default. Choose **PDF/A-4 (ISO 19005-4:2020)**

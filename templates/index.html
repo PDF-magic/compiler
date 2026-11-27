@@ -470,6 +470,14 @@
             </select>
             <small>Endnotes keep global numbering and links. H1 grouping collects notes at the document end under the H1 where each note is first cited.</small>
           </label>
+          <label>Repeated footnote references
+            <select name="repeated_footnotes">
+              <option value="reuse">Reuse original footnote number</option>
+              <option value="full">New footnote with full citation</option>
+              <option value="supra">New footnote with automatic Id. / supra citation</option>
+            </select>
+            <small>Automatic short citations italicize Id. or See supra, leaving note and its linked number upright. Quotation-local footnotes remain independent.</small>
+          </label>
           <label class="check full"><input type="checkbox" name="quote_inline_number_footnotes"> Enable inline numbered footnotes (<code>[11]</code>) in sourced blockquotes
             <small>Off by default to avoid interpreting ordinary bracketed text as a citation. With this on, <code>[11]</code> and <code>[11]:</code> work only inside <code>[!QUOTE]</code> blocks with matching local definitions. Standard <code>[^11]</code> works without this setting.</small>
           </label>

@@ -469,6 +469,7 @@ def render_pdf():
                 smart_quotes=truthy("smart_quotes"),
                 quote_inline_number_footnotes=truthy("quote_inline_number_footnotes"),
                 quote_source_before_footnotes=truthy("quote_source_before_footnotes"),
+                repeated_footnotes=request.form.get("repeated_footnotes", "reuse"),
                 emoji_style=emoji_style,
                 emoji_pack=emoji_pack,
                 underline_links=truthy("underline_links"),
